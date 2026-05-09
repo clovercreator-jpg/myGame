@@ -2,10 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Minecraft風ゲーム</title>
 <style>
-  body { margin: 0; overflow: hidden; font-family: monospace; background: #000; }
+  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; font-family: monospace; background: #000; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
   canvas { display: block; }
+
   #info {
     position: absolute;
     top: 10px;
@@ -17,7 +19,9 @@
     font-size: 13px;
     pointer-events: none;
     z-index: 5;
+    max-width: calc(100vw - 30px);
   }
+
   #crosshair {
     position: absolute;
     top: 50%; left: 50%;
@@ -34,6 +38,7 @@
   }
   #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
   #crosshair::after  { left: 9px; top: 0; width: 2px; height: 20px; }
+
   #blocker {
     position: absolute;
     top: 0; left: 0;
@@ -47,9 +52,55 @@
     cursor: pointer;
     z-index: 10;
     text-align: center;
+    padding: 20px;
+    box-sizing: border-box;
   }
-  #blocker h1 { font-size: 32px; margin: 0 0 16px; }
-  #blocker p  { font-size: 16px; margin: 4px 0; }
+  #blocker h1 { font-size: 28px; margin: 0 0 16px; }
+  #blocker p  { font-size: 15px; margin: 4px 0; }
+
+  /* Touch UI */
+  #touchUI { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+  #touchUI.active { display: block; }
+
+  #joystick {
+    position: absolute;
+    bottom: max(30px, env(safe-area-inset-bottom, 0px));
+    left: 30px;
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.4);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #joyKnob {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 56px; height: 56px;
+    margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.5);
+    border: 2px solid rgba(255,255,255,0.8);
+    pointer-events: none;
+    transition: transform 0.05s linear;
+  }
+
+  #jumpBtn {
+    position: absolute;
+    bottom: max(50px, env(safe-area-inset-bottom, 0px));
+    right: 40px;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    border: 2px solid rgba(255,255,255,0.5);
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #jumpBtn:active, #jumpBtn.pressed { background: rgba(255,255,255,0.4); }
 </style>
 </head>
 <body>
@@ -60,21 +111,25 @@
   <p>クリックして開始</p>
   <p>WASD: 移動 / Space: ジャンプ / マウス: 視点 / ESC: 終了</p>
 </div>
+<div id="touchUI">
+  <div id="joystick"><div id="joyKnob"></div></div>
+  <div id="jumpBtn">JUMP</div>
+</div>
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
   }
 }
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 const WORLD_SIZE = 64;
 const WORLD_HEIGHT = 8;
+
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
 // --- Scene setup ---
 const scene = new THREE.Scene();
@@ -82,6 +137,7 @@ scene.background = new THREE.Color(0x88ccee);
 scene.fog = new THREE.Fog(0x88ccee, 40, 100);
 
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 300);
+camera.rotation.order = 'YXZ';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -135,7 +191,6 @@ const grassSideTex = makeTexture(ctx => {
     ctx.fillStyle = Math.random() < 0.5 ? '#4a8a2e' : '#76c44a';
     ctx.fillRect((Math.random()*16)|0, (Math.random()*4)|0, 1, 1);
   }
-  // a few grass tufts hanging into the dirt
   for (let i = 0; i < 5; i++) {
     ctx.fillStyle = '#4a8a2e';
     ctx.fillRect((Math.random()*16)|0, 4 + ((Math.random()*2)|0), 1, 1);
@@ -173,7 +228,6 @@ const bedrockTex = makeTexture(ctx => {
   }
 });
 
-// Materials per face: [+X, -X, +Y, -Y, +Z, -Z]
 const grassMaterials = [
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
@@ -186,7 +240,6 @@ const cobbleMaterial = new THREE.MeshLambertMaterial({ map: cobbleTex });
 const bedrockMaterial = new THREE.MeshLambertMaterial({ map: bedrockTex });
 
 // --- World data ---
-// 0:air 1:grass 2:cobble 3:bedrock
 const world = new Uint8Array(WORLD_SIZE * WORLD_HEIGHT * WORLD_SIZE);
 const idx = (x, y, z) => (y * WORLD_SIZE + z) * WORLD_SIZE + x;
 const getBlock = (x, y, z) => {
@@ -206,15 +259,15 @@ for (let x = 0; x < WORLD_SIZE; x++) {
     const top = heightAt(x, z);
     for (let y = 0; y <= top; y++) {
       let b;
-      if (y === 0) b = 3;          // bedrock
-      else if (y < top) b = 2;     // cobblestone
-      else b = 1;                  // grass
+      if (y === 0) b = 3;
+      else if (y < top) b = 2;
+      else b = 1;
       world[idx(x, y, z)] = b;
     }
   }
 }
 
-// --- Build meshes (only render exposed blocks; use InstancedMesh per type) ---
+// --- Build meshes ---
 function isAir(x, y, z) { return getBlock(x, y, z) === 0; }
 
 const positionsByType = { 1: [], 2: [], 3: [] };
@@ -253,41 +306,167 @@ scene.add(makeInstanced(grassMaterials, positionsByType[1]));
 scene.add(makeInstanced(cobbleMaterial, positionsByType[2]));
 scene.add(makeInstanced(bedrockMaterial, positionsByType[3]));
 
-// --- Controls (pointer lock first-person) ---
-const controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
-
-const blocker = document.getElementById('blocker');
-blocker.addEventListener('click', () => controls.lock());
-controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
-controls.addEventListener('unlock', () => { blocker.style.display = 'flex'; });
-
-// Spawn at world center, slightly above ground
+// --- Player rig (yaw object + camera child for pitch) ---
+const player = new THREE.Object3D();
 const startX = WORLD_SIZE / 2;
 const startZ = WORLD_SIZE / 2;
 const startY = heightAt(Math.floor(startX), Math.floor(startZ)) + 3;
-controls.getObject().position.set(startX, startY, startZ);
+player.position.set(startX, startY, startZ);
+player.add(camera);
+scene.add(player);
 
-// --- Input ---
+let pitch = 0;
+function applyLook(dYaw, dPitch) {
+  player.rotation.y -= dYaw;
+  pitch -= dPitch;
+  const limit = Math.PI / 2 - 0.01;
+  if (pitch > limit) pitch = limit;
+  if (pitch < -limit) pitch = -limit;
+  camera.rotation.x = pitch;
+}
+
+// --- Input state ---
 const keys = { forward: false, back: false, left: false, right: false, jump: false };
-addEventListener('keydown', e => {
-  switch (e.code) {
-    case 'KeyW': case 'ArrowUp':    keys.forward = true; break;
-    case 'KeyS': case 'ArrowDown':  keys.back    = true; break;
-    case 'KeyA': case 'ArrowLeft':  keys.left    = true; break;
-    case 'KeyD': case 'ArrowRight': keys.right   = true; break;
-    case 'Space':                   keys.jump    = true; break;
+const joyVec = { x: 0, y: 0 };
+
+// --- Desktop: pointer lock + mouse + keyboard ---
+const blocker = document.getElementById('blocker');
+const infoEl = document.getElementById('info');
+const touchUI = document.getElementById('touchUI');
+
+let pointerLocked = false;
+
+if (!isTouch) {
+  blocker.addEventListener('click', () => {
+    document.body.requestPointerLock();
+  });
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === document.body;
+    blocker.style.display = pointerLocked ? 'none' : 'flex';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!pointerLocked) return;
+    applyLook(e.movementX * 0.002, e.movementY * 0.002);
+  });
+  addEventListener('keydown', e => {
+    switch (e.code) {
+      case 'KeyW': case 'ArrowUp':    keys.forward = true; break;
+      case 'KeyS': case 'ArrowDown':  keys.back    = true; break;
+      case 'KeyA': case 'ArrowLeft':  keys.left    = true; break;
+      case 'KeyD': case 'ArrowRight': keys.right   = true; break;
+      case 'Space':                   keys.jump    = true; break;
+    }
+  });
+  addEventListener('keyup', e => {
+    switch (e.code) {
+      case 'KeyW': case 'ArrowUp':    keys.forward = false; break;
+      case 'KeyS': case 'ArrowDown':  keys.back    = false; break;
+      case 'KeyA': case 'ArrowLeft':  keys.left    = false; break;
+      case 'KeyD': case 'ArrowRight': keys.right   = false; break;
+      case 'Space':                   keys.jump    = false; break;
+    }
+  });
+}
+
+// --- Touch controls ---
+if (isTouch) {
+  blocker.style.display = 'none';
+  touchUI.classList.add('active');
+  infoEl.textContent = '左下スティック: 移動 / 右下: ジャンプ / 画面: 視点';
+  pointerLocked = true; // treat as "active"
+
+  const joystickEl = document.getElementById('joystick');
+  const joyKnobEl = document.getElementById('joyKnob');
+  const jumpBtnEl = document.getElementById('jumpBtn');
+
+  let joyTouchId = null;
+  let jumpTouchId = null;
+  let lookTouchId = null;
+  let lookLastX = 0, lookLastY = 0;
+
+  function updateJoystick(touch) {
+    const rect = joystickEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = touch.clientX - cx;
+    let dy = touch.clientY - cy;
+    const max = rect.width / 2;
+    const dist = Math.hypot(dx, dy);
+    if (dist > max) {
+      dx = dx * max / dist;
+      dy = dy * max / dist;
+    }
+    joyVec.x = dx / max;
+    joyVec.y = dy / max;
+    joyKnobEl.style.transform = `translate(${dx}px, ${dy}px)`;
   }
-});
-addEventListener('keyup', e => {
-  switch (e.code) {
-    case 'KeyW': case 'ArrowUp':    keys.forward = false; break;
-    case 'KeyS': case 'ArrowDown':  keys.back    = false; break;
-    case 'KeyA': case 'ArrowLeft':  keys.left    = false; break;
-    case 'KeyD': case 'ArrowRight': keys.right   = false; break;
-    case 'Space':                   keys.jump    = false; break;
+
+  function resetJoystick() {
+    joyVec.x = 0; joyVec.y = 0;
+    joyKnobEl.style.transform = 'translate(0,0)';
   }
-});
+
+  joystickEl.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (joyTouchId !== null) return;
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier;
+    updateJoystick(t);
+  }, { passive: false });
+
+  jumpBtnEl.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (jumpTouchId !== null) return;
+    jumpTouchId = e.changedTouches[0].identifier;
+    keys.jump = true;
+    jumpBtnEl.classList.add('pressed');
+  }, { passive: false });
+
+  // Look gesture: any touch on the canvas/body that isn't on UI
+  document.addEventListener('touchstart', e => {
+    if (lookTouchId !== null) return;
+    for (const t of e.changedTouches) {
+      const target = t.target;
+      if (target === joystickEl || target === joyKnobEl || target === jumpBtnEl) continue;
+      if (joystickEl.contains(target) || jumpBtnEl.contains(target)) continue;
+      lookTouchId = t.identifier;
+      lookLastX = t.clientX;
+      lookLastY = t.clientY;
+      break;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyTouchId) {
+        updateJoystick(t);
+      } else if (t.identifier === lookTouchId) {
+        const dx = t.clientX - lookLastX;
+        const dy = t.clientY - lookLastY;
+        lookLastX = t.clientX;
+        lookLastY = t.clientY;
+        applyLook(dx * 0.005, dy * 0.005);
+      }
+    }
+  }, { passive: true });
+
+  function endTouch(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyTouchId) {
+        joyTouchId = null;
+        resetJoystick();
+      } else if (t.identifier === jumpTouchId) {
+        jumpTouchId = null;
+        keys.jump = false;
+        jumpBtnEl.classList.remove('pressed');
+      } else if (t.identifier === lookTouchId) {
+        lookTouchId = null;
+      }
+    }
+  }
+  document.addEventListener('touchend', endTouch);
+  document.addEventListener('touchcancel', endTouch);
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -333,10 +512,11 @@ function update(dt) {
   if (keys.back)    moveDir.z += 1;
   if (keys.left)    moveDir.x -= 1;
   if (keys.right)   moveDir.x += 1;
-  if (moveDir.lengthSq() > 0) moveDir.normalize();
+  moveDir.x += joyVec.x;
+  moveDir.z += joyVec.y;
+  if (moveDir.lengthSq() > 1) moveDir.normalize();
 
-  const obj = controls.getObject();
-  const yaw = obj.rotation.y;
+  const yaw = player.rotation.y;
   const cos = Math.cos(yaw), sin = Math.sin(yaw);
   const moveX = (moveDir.x * cos + moveDir.z * sin) * MOVE_SPEED;
   const moveZ = (-moveDir.x * sin + moveDir.z * cos) * MOVE_SPEED;
@@ -346,7 +526,7 @@ function update(dt) {
     onGround = false;
   }
 
-  const pos = obj.position;
+  const pos = player.position;
 
   const newX = pos.x + moveX * dt;
   if (!collides(newX, pos.y, pos.z)) pos.x = newX;
@@ -372,7 +552,7 @@ function update(dt) {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1);
-  if (controls.isLocked) update(dt);
+  if (pointerLocked) update(dt);
   renderer.render(scene, camera);
 }
 animate();
