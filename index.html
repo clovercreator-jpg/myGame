@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft風ゲーム</title>
+<style>
+  body { margin: 0; overflow: hidden; font-family: monospace; background: #000; }
+  canvas { display: block; }
+  #info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    background: rgba(0,0,0,0.5);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #crosshair {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 20px; height: 20px;
+    margin: -10px 0 0 -10px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: white;
+    box-shadow: 0 0 2px black;
+  }
+  #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+  #crosshair::after  { left: 9px; top: 0; width: 2px; height: 20px; }
+  #blocker {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    text-align: center;
+  }
+  #blocker h1 { font-size: 32px; margin: 0 0 16px; }
+  #blocker p  { font-size: 16px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<div id="info">WASD: 移動 / Space: ジャンプ / マウス: 視点</div>
+<div id="crosshair"></div>
+<div id="blocker">
+  <h1>Minecraft風ゲーム</h1>
+  <p>クリックして開始</p>
+  <p>WASD: 移動 / Space: ジャンプ / マウス: 視点 / ESC: 終了</p>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+const WORLD_SIZE = 64;
+const WORLD_HEIGHT = 8;
+
+// --- Scene setup ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x88ccee);
+scene.fog = new THREE.Fog(0x88ccee, 40, 100);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 300);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// --- Lights ---
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(50, 80, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const SH = 60;
+sun.shadow.camera.left = -SH;
+sun.shadow.camera.right = SH;
+sun.shadow.camera.top = SH;
+sun.shadow.camera.bottom = -SH;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 200;
+scene.add(sun);
+
+// --- Procedural pixel textures ---
+function makeTexture(draw) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  draw(c.getContext('2d'));
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  return t;
+}
+
+const grassTopTex = makeTexture(ctx => {
+  ctx.fillStyle = '#5eaa3a'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#4a8a2e' : '#76c44a';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
+
+const grassSideTex = makeTexture(ctx => {
+  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 30; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#6e4423' : '#a06d35';
+    ctx.fillRect((Math.random()*16)|0, 4 + ((Math.random()*12)|0), 1, 1);
+  }
+  ctx.fillStyle = '#5eaa3a'; ctx.fillRect(0, 0, 16, 4);
+  for (let i = 0; i < 18; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#4a8a2e' : '#76c44a';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*4)|0, 1, 1);
+  }
+  // a few grass tufts hanging into the dirt
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = '#4a8a2e';
+    ctx.fillRect((Math.random()*16)|0, 4 + ((Math.random()*2)|0), 1, 1);
+  }
+});
+
+const dirtTex = makeTexture(ctx => {
+  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 50; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#6e4423' : '#a06d35';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
+
+const cobbleTex = makeTexture(ctx => {
+  ctx.fillStyle = '#7a7a7a'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 70; i++) {
+    const v = 80 + ((Math.random()*60)|0);
+    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1+((Math.random()*2)|0), 1+((Math.random()*2)|0));
+  }
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(0, 7, 16, 1);
+  ctx.fillRect(7, 0, 1, 8);
+  ctx.fillRect(3, 8, 1, 8);
+  ctx.fillRect(11, 8, 1, 8);
+});
+
+const bedrockTex = makeTexture(ctx => {
+  ctx.fillStyle = '#3a3a3a'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 90; i++) {
+    const v = 30 + ((Math.random()*55)|0);
+    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1+((Math.random()*2)|0), 1+((Math.random()*2)|0));
+  }
+});
+
+// Materials per face: [+X, -X, +Y, -Y, +Z, -Z]
+const grassMaterials = [
+  new THREE.MeshLambertMaterial({ map: grassSideTex }),
+  new THREE.MeshLambertMaterial({ map: grassSideTex }),
+  new THREE.MeshLambertMaterial({ map: grassTopTex }),
+  new THREE.MeshLambertMaterial({ map: dirtTex }),
+  new THREE.MeshLambertMaterial({ map: grassSideTex }),
+  new THREE.MeshLambertMaterial({ map: grassSideTex }),
+];
+const cobbleMaterial = new THREE.MeshLambertMaterial({ map: cobbleTex });
+const bedrockMaterial = new THREE.MeshLambertMaterial({ map: bedrockTex });
+
+// --- World data ---
+// 0:air 1:grass 2:cobble 3:bedrock
+const world = new Uint8Array(WORLD_SIZE * WORLD_HEIGHT * WORLD_SIZE);
+const idx = (x, y, z) => (y * WORLD_SIZE + z) * WORLD_SIZE + x;
+const getBlock = (x, y, z) => {
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return 0;
+  if (y < 0 || y >= WORLD_HEIGHT) return 0;
+  return world[idx(x, y, z)];
+};
+
+function heightAt(x, z) {
+  const v = Math.sin(x * 0.18) * Math.cos(z * 0.22) * 1.2
+          + Math.sin((x + z) * 0.09) * 0.8;
+  return Math.max(3, Math.min(WORLD_HEIGHT - 1, Math.round(4 + v)));
+}
+
+for (let x = 0; x < WORLD_SIZE; x++) {
+  for (let z = 0; z < WORLD_SIZE; z++) {
+    const top = heightAt(x, z);
+    for (let y = 0; y <= top; y++) {
+      let b;
+      if (y === 0) b = 3;          // bedrock
+      else if (y < top) b = 2;     // cobblestone
+      else b = 1;                  // grass
+      world[idx(x, y, z)] = b;
+    }
+  }
+}
+
+// --- Build meshes (only render exposed blocks; use InstancedMesh per type) ---
+function isAir(x, y, z) { return getBlock(x, y, z) === 0; }
+
+const positionsByType = { 1: [], 2: [], 3: [] };
+for (let x = 0; x < WORLD_SIZE; x++) {
+  for (let y = 0; y < WORLD_HEIGHT; y++) {
+    for (let z = 0; z < WORLD_SIZE; z++) {
+      const b = getBlock(x, y, z);
+      if (b === 0) continue;
+      if (isAir(x+1,y,z) || isAir(x-1,y,z) || isAir(x,y+1,z) ||
+          isAir(x,y-1,z) || isAir(x,y,z+1) || isAir(x,y,z-1)) {
+        positionsByType[b].push(x, y, z);
+      }
+    }
+  }
+}
+
+const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+const tmpMatrix = new THREE.Matrix4();
+function makeInstanced(mat, flatPositions) {
+  const count = flatPositions.length / 3;
+  const mesh = new THREE.InstancedMesh(blockGeo, mat, count);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  for (let i = 0; i < count; i++) {
+    const x = flatPositions[i*3];
+    const y = flatPositions[i*3 + 1];
+    const z = flatPositions[i*3 + 2];
+    tmpMatrix.setPosition(x + 0.5, y + 0.5, z + 0.5);
+    mesh.setMatrixAt(i, tmpMatrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+scene.add(makeInstanced(grassMaterials, positionsByType[1]));
+scene.add(makeInstanced(cobbleMaterial, positionsByType[2]));
+scene.add(makeInstanced(bedrockMaterial, positionsByType[3]));
+
+// --- Controls (pointer lock first-person) ---
+const controls = new PointerLockControls(camera, document.body);
+scene.add(controls.getObject());
+
+const blocker = document.getElementById('blocker');
+blocker.addEventListener('click', () => controls.lock());
+controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+controls.addEventListener('unlock', () => { blocker.style.display = 'flex'; });
+
+// Spawn at world center, slightly above ground
+const startX = WORLD_SIZE / 2;
+const startZ = WORLD_SIZE / 2;
+const startY = heightAt(Math.floor(startX), Math.floor(startZ)) + 3;
+controls.getObject().position.set(startX, startY, startZ);
+
+// --- Input ---
+const keys = { forward: false, back: false, left: false, right: false, jump: false };
+addEventListener('keydown', e => {
+  switch (e.code) {
+    case 'KeyW': case 'ArrowUp':    keys.forward = true; break;
+    case 'KeyS': case 'ArrowDown':  keys.back    = true; break;
+    case 'KeyA': case 'ArrowLeft':  keys.left    = true; break;
+    case 'KeyD': case 'ArrowRight': keys.right   = true; break;
+    case 'Space':                   keys.jump    = true; break;
+  }
+});
+addEventListener('keyup', e => {
+  switch (e.code) {
+    case 'KeyW': case 'ArrowUp':    keys.forward = false; break;
+    case 'KeyS': case 'ArrowDown':  keys.back    = false; break;
+    case 'KeyA': case 'ArrowLeft':  keys.left    = false; break;
+    case 'KeyD': case 'ArrowRight': keys.right   = false; break;
+    case 'Space':                   keys.jump    = false; break;
+  }
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// --- Physics ---
+const GRAVITY = 28;
+const JUMP_SPEED = 9;
+const MOVE_SPEED = 5;
+const PLAYER_RADIUS = 0.3;
+const PLAYER_HEIGHT = 1.7;
+const EYE_HEIGHT = 1.6;
+
+const velocity = new THREE.Vector3();
+const moveDir = new THREE.Vector3();
+let onGround = false;
+
+function collides(px, py, pz) {
+  const minX = Math.floor(px - PLAYER_RADIUS);
+  const maxX = Math.floor(px + PLAYER_RADIUS);
+  const minZ = Math.floor(pz - PLAYER_RADIUS);
+  const maxZ = Math.floor(pz + PLAYER_RADIUS);
+  const feetY = py - EYE_HEIGHT;
+  const headY = feetY + PLAYER_HEIGHT;
+  const minY = Math.floor(feetY);
+  const maxY = Math.floor(headY);
+  for (let x = minX; x <= maxX; x++)
+    for (let y = minY; y <= maxY; y++)
+      for (let z = minZ; z <= maxZ; z++)
+        if (getBlock(x, y, z) !== 0) return true;
+  return false;
+}
+
+const clock = new THREE.Clock();
+
+function update(dt) {
+  velocity.y -= GRAVITY * dt;
+
+  moveDir.set(0, 0, 0);
+  if (keys.forward) moveDir.z -= 1;
+  if (keys.back)    moveDir.z += 1;
+  if (keys.left)    moveDir.x -= 1;
+  if (keys.right)   moveDir.x += 1;
+  if (moveDir.lengthSq() > 0) moveDir.normalize();
+
+  const obj = controls.getObject();
+  const yaw = obj.rotation.y;
+  const cos = Math.cos(yaw), sin = Math.sin(yaw);
+  const moveX = (moveDir.x * cos + moveDir.z * sin) * MOVE_SPEED;
+  const moveZ = (-moveDir.x * sin + moveDir.z * cos) * MOVE_SPEED;
+
+  if (keys.jump && onGround) {
+    velocity.y = JUMP_SPEED;
+    onGround = false;
+  }
+
+  const pos = obj.position;
+
+  const newX = pos.x + moveX * dt;
+  if (!collides(newX, pos.y, pos.z)) pos.x = newX;
+
+  const newZ = pos.z + moveZ * dt;
+  if (!collides(pos.x, pos.y, newZ)) pos.z = newZ;
+
+  const newY = pos.y + velocity.y * dt;
+  if (!collides(pos.x, newY, pos.z)) {
+    pos.y = newY;
+    onGround = false;
+  } else {
+    if (velocity.y < 0) onGround = true;
+    velocity.y = 0;
+  }
+
+  if (pos.y < -20) {
+    pos.set(startX, startY, startZ);
+    velocity.set(0, 0, 0);
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (controls.isLocked) update(dt);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
