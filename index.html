@@ -96,7 +96,7 @@
 <body>
 <div id="damageOverlay"></div>
 <div id="coords">XYZ: -- / -- / --</div>
-<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-5: 選択</div>
+<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-6: 選択</div>
 <div id="crosshair"></div>
 <div id="blocker">
   <h1>Minecraft風ゲーム</h1>
@@ -112,6 +112,7 @@
   <div class="slot"          data-block="6" data-num="3"></div>
   <div class="slot"          data-block="4" data-num="4"></div>
   <div class="slot"          data-block="5" data-num="5"></div>
+  <div class="slot"          data-block="8" data-num="6"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -601,7 +602,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 6, 4, 5]);
+const SELECTABLE = new Set([1, 2, 6, 4, 5, 8]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -951,6 +952,7 @@ if (!isTouch) {
       case 'Digit3': selectBlock(6); break;
       case 'Digit4': selectBlock(4); break;
       case 'Digit5': selectBlock(5); break;
+      case 'Digit6': selectBlock(8); break;
     }
   });
   addEventListener('keyup', e => {
