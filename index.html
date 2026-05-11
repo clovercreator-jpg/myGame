@@ -96,23 +96,24 @@
 <body>
 <div id="damageOverlay"></div>
 <div id="coords">XYZ: -- / -- / --</div>
-<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-6: 選択</div>
+<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-7: 選択</div>
 <div id="crosshair"></div>
 <div id="blocker">
   <h1>Minecraft風ゲーム</h1>
   <p id="loadingText">ワールド生成中...</p>
   <div id="progress"><div id="progressBar"></div></div>
   <p>WASD: 移動 / Space: ジャンプ / マウス: 視点 / ESC: 終了</p>
-  <p>左クリック: 壊す / 右クリック: 置く / 1-5: ブロック選択</p>
+  <p>左クリック: 壊す / 右クリック: 置く / 1-7: ブロック選択</p>
   <p style="color:#f88">⚠ 緑のクリーパーに近付くと爆発します</p>
 </div>
 <div id="hotbar">
   <div class="slot selected" data-block="1" data-num="1"></div>
   <div class="slot"          data-block="2" data-num="2"></div>
-  <div class="slot"          data-block="6" data-num="3"></div>
-  <div class="slot"          data-block="4" data-num="4"></div>
-  <div class="slot"          data-block="5" data-num="5"></div>
-  <div class="slot"          data-block="8" data-num="6"></div>
+  <div class="slot"          data-block="7" data-num="3"></div>
+  <div class="slot"          data-block="6" data-num="4"></div>
+  <div class="slot"          data-block="4" data-num="5"></div>
+  <div class="slot"          data-block="5" data-num="6"></div>
+  <div class="slot"          data-block="8" data-num="7"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -224,10 +225,11 @@ function smoothNoise3D(hash, x, y, z) {
 }
 const caveHash1 = makeHash3D(7777);
 const caveHash2 = makeHash3D(8888);
+const stoneHash = makeHash3D(33337);
 function isCave(x, y, z) {
-  const n1 = smoothNoise3D(caveHash1, x * 0.06, y * 0.12, z * 0.06);
-  const n2 = smoothNoise3D(caveHash2, x * 0.05, y * 0.13, z * 0.05);
-  return Math.abs(n1) < 0.14 && Math.abs(n2) < 0.14;
+  const n1 = smoothNoise3D(caveHash1, x * 0.045, y * 0.09, z * 0.045);
+  const n2 = smoothNoise3D(caveHash2, x * 0.04,  y * 0.10, z * 0.04);
+  return Math.abs(n1) < 0.18 && Math.abs(n2) < 0.18;
 }
 
 const WATER_LEVEL = 25;
@@ -327,6 +329,29 @@ const waterTex = makeTexture('water', ctx => {
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
+const stoneTex = makeTexture('stone', ctx => {
+  ctx.fillStyle = '#919191'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 40; i++) {
+    const v = 125 + ((Math.random() * 40) | 0);
+    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = '#6e6e6e';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
+const lavaTex = makeTexture('lava', ctx => {
+  ctx.fillStyle = '#d8500e'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 45; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#f0a020' : '#a83b0a';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1 + ((Math.random()*2)|0), 1 + ((Math.random()*2)|0));
+  }
+  for (let i = 0; i < 12; i++) {
+    ctx.fillStyle = '#ffd040';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
 
 const grassMaterials = [
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
@@ -349,20 +374,24 @@ const logMaterials = [
 ];
 const leavesMaterial = new THREE.MeshLambertMaterial({ map: leavesTex });
 const snowMaterial   = new THREE.MeshLambertMaterial({ map: snowTex });
+const stoneMaterial  = new THREE.MeshLambertMaterial({ map: stoneTex });
+const lavaMaterial   = new THREE.MeshBasicMaterial({ map: lavaTex });
 const waterMaterial  = new THREE.MeshLambertMaterial({
   map: waterTex, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false
 });
 
-// 0:air 1:grass 2:cobble 3:bedrock 4:log 5:leaves 6:dirt 8:snow 9:water
+// 0:air 1:grass 2:cobble 3:bedrock 4:log 5:leaves 6:dirt 7:stone 8:snow 9:water 10:lava
 const BLOCK_TYPES = {
-  1: { material: grassMaterials,  icon: 'grassTop' },
-  2: { material: cobbleMaterial,  icon: 'cobble' },
-  3: { material: bedrockMaterial, icon: 'bedrock' },
-  4: { material: logMaterials,    icon: 'logSide' },
-  5: { material: leavesMaterial,  icon: 'leaves' },
-  6: { material: dirtMaterial,    icon: 'dirt' },
-  8: { material: snowMaterial,    icon: 'snow' },
-  9: { material: waterMaterial,   icon: 'water' },
+  1:  { material: grassMaterials,  icon: 'grassTop' },
+  2:  { material: cobbleMaterial,  icon: 'cobble' },
+  3:  { material: bedrockMaterial, icon: 'bedrock' },
+  4:  { material: logMaterials,    icon: 'logSide' },
+  5:  { material: leavesMaterial,  icon: 'leaves' },
+  6:  { material: dirtMaterial,    icon: 'dirt' },
+  7:  { material: stoneMaterial,   icon: 'stone' },
+  8:  { material: snowMaterial,    icon: 'snow' },
+  9:  { material: waterMaterial,   icon: 'water' },
+  10: { material: lavaMaterial,    icon: 'lava' },
 };
 
 // --- World data ---
@@ -381,13 +410,13 @@ function isAir(x, y, z) {
   if (z < 0 || z >= WORLD_SIZE) return false;
   return world[idx(x, y, z)] === 0;
 }
-// 衝突判定用: ワールドの外も「実体」扱い (透明壁の役目)。水は通り抜け可能
+// 衝突判定用: ワールドの外も「実体」扱い (透明壁の役目)。水と溶岩は通り抜け可能
 function isSolidForCollision(x, y, z) {
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return true;
   if (y < 0) return true;
   if (y >= WORLD_HEIGHT) return false;
   const t = world[idx(x, y, z)];
-  return t !== 0 && t !== 9;
+  return t !== 0 && t !== 9 && t !== 10;
 }
 
 // --- 地形生成 ---
@@ -403,17 +432,34 @@ function generateTerrain() {
         // 洞窟: 表面から少し下、岩盤の少し上で発生
         if (y >= 4 && y < h - 2 && isCave(x, y, z)) continue;
         if (!isMountain && y >= h - 3) setWorld(x, y, z, 6); // dirt
-        else setWorld(x, y, z, 2); // cobble
+        else {
+          // 石ベース、丸石の斑を混ぜる
+          const vein = smoothNoise3D(stoneHash, x * 0.22, y * 0.28, z * 0.22);
+          setWorld(x, y, z, vein > 0.18 ? 2 : 7);
+        }
       }
       let top;
       if (isSnowy) top = 8;
       else if (isMountain) top = 2;
-      else if (isUnderwater) top = 6; // 湖底は土
+      else if (isUnderwater) top = 6;
       else top = 1;
       setWorld(x, h, z, top);
-      // 湖の水
       if (isUnderwater) {
         for (let y = h + 1; y <= WATER_LEVEL; y++) setWorld(x, y, z, 9);
+      }
+    }
+  }
+}
+
+// 洞窟の床に溶岩を撒く (低層のみ)
+function placeLava() {
+  for (let x = 1; x < WORLD_SIZE - 1; x++) {
+    for (let z = 1; z < WORLD_SIZE - 1; z++) {
+      for (let y = 3; y < 14; y++) {
+        if (world[idx(x, y, z)] !== 0) continue;
+        const below = world[idx(x, y - 1, z)];
+        if (below === 0 || below === 9 || below === 10) continue;
+        if (Math.random() < 0.18) setWorld(x, y, z, 10);
       }
     }
   }
@@ -654,30 +700,31 @@ player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
 
 // 洞窟の地表入り口を開ける
 function placeCaveEntrances() {
-  const TARGET = 140;
+  const TARGET = 240;
   let placed = 0;
-  for (let attempt = 0; attempt < TARGET * 14 && placed < TARGET; attempt++) {
+  for (let attempt = 0; attempt < TARGET * 20 && placed < TARGET; attempt++) {
     const x = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
     const z = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
-    if (Math.abs(x - SPAWN_X) < 12 && Math.abs(z - SPAWN_Z) < 12) continue;
+    if (Math.abs(x - SPAWN_X) < 14 && Math.abs(z - SPAWN_Z) < 14) continue;
     const sh = terrainHeight(x, z);
-    if (sh <= WATER_LEVEL + 1) continue;     // 湖の中は避ける
-    if (sh >= 55) continue;                  // 高すぎる山頂も避ける
+    if (sh <= WATER_LEVEL + 1) continue;
+    if (sh >= 55) continue;
     // 直下に洞窟があるか探す
     let caveY = -1;
     for (let y = sh - 2; y >= 5; y--) {
       if (world[idx(x, y, z)] === 0) { caveY = y; break; }
     }
-    if (caveY < 0 || sh - caveY > 14) continue; // 浅い洞窟だけ繋ぐ
-    // 1x1〜2x2 のシャフトを掘る
-    const size = Math.random() < 0.55 ? 2 : 1;
-    for (let dx = 0; dx < size; dx++) {
-      for (let dz = 0; dz < size; dz++) {
+    if (caveY < 0 || sh - caveY > 20) continue;
+    // 2x2 〜 3x3 のシャフトを掘る (確実に視認できる大きさ)
+    const sizeX = 2 + (Math.random() < 0.35 ? 1 : 0);
+    const sizeZ = 2 + (Math.random() < 0.35 ? 1 : 0);
+    for (let dx = 0; dx < sizeX; dx++) {
+      for (let dz = 0; dz < sizeZ; dz++) {
         const tx = x + dx, tz = z + dz;
         if (tx < 1 || tx >= WORLD_SIZE - 1 || tz < 1 || tz >= WORLD_SIZE - 1) continue;
         for (let y = caveY + 1; y <= sh; y++) {
           const t = world[idx(tx, y, tz)];
-          if (t === 9) continue; // 水は残す (上にあれば)
+          if (t === 9) continue;
           setWorld(tx, y, tz, 0);
         }
       }
@@ -720,7 +767,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 6, 4, 5, 8]);
+const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -992,7 +1039,7 @@ function explode(x, y, z) {
         if (d > R) continue;
         const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz);
         const t = getBlock(bx, by, bz);
-        if (t === 0 || t === 3 || t === 9) continue; // 岩盤と水は壊れない
+        if (t === 0 || t === 3 || t === 9 || t === 10) continue; // 岩盤・水・溶岩は壊れない
         if (Math.random() < 1 - d / R - 0.1) setBlock(bx, by, bz, 0);
       }
     }
@@ -1078,10 +1125,11 @@ if (!isTouch) {
       case 'Space':                   keys.jump    = true; break;
       case 'Digit1': selectBlock(1); break;
       case 'Digit2': selectBlock(2); break;
-      case 'Digit3': selectBlock(6); break;
-      case 'Digit4': selectBlock(4); break;
-      case 'Digit5': selectBlock(5); break;
-      case 'Digit6': selectBlock(8); break;
+      case 'Digit3': selectBlock(7); break;
+      case 'Digit4': selectBlock(6); break;
+      case 'Digit5': selectBlock(4); break;
+      case 'Digit6': selectBlock(5); break;
+      case 'Digit7': selectBlock(8); break;
     }
   });
   addEventListener('keyup', e => {
@@ -1216,7 +1264,7 @@ function tryBreak() {
   const tgt = raycastBlock();
   if (!tgt) return;
   const t = getBlock(tgt.x, tgt.y, tgt.z);
-  if (t === 0 || t === 3 || t === 9) return; // 岩盤と水は壊せない
+  if (t === 0 || t === 3 || t === 9 || t === 10) return; // 岩盤・水・溶岩は壊せない
   setBlock(tgt.x, tgt.y, tgt.z, 0);
 }
 function tryPlace() {
@@ -1237,6 +1285,23 @@ const MOVE_SPEED = 5;
 const velocity = new THREE.Vector3();
 const moveDir = new THREE.Vector3();
 let onGround = false;
+function playerTouchesBlock(targetType) {
+  const pos = player.position;
+  const minX = Math.floor(pos.x - PLAYER_RADIUS), maxX = Math.floor(pos.x + PLAYER_RADIUS);
+  const minZ = Math.floor(pos.z - PLAYER_RADIUS), maxZ = Math.floor(pos.z + PLAYER_RADIUS);
+  const feetY = pos.y - EYE_HEIGHT;
+  const headY = feetY + PLAYER_HEIGHT;
+  const minY = Math.floor(feetY), maxY = Math.floor(headY);
+  for (let x = minX; x <= maxX; x++)
+    for (let y = minY; y <= maxY; y++)
+      for (let z = minZ; z <= maxZ; z++)
+        if (getBlock(x, y, z) === targetType) return true;
+  return false;
+}
+
+const LAVA_DEATH_AT = 1.5;
+let lavaTimer = 0;
+
 function playerCollides(px, py, pz) {
   const minX = Math.floor(px - PLAYER_RADIUS), maxX = Math.floor(px + PLAYER_RADIUS);
   const minZ = Math.floor(pz - PLAYER_RADIUS), maxZ = Math.floor(pz + PLAYER_RADIUS);
@@ -1301,6 +1366,21 @@ function updatePlayer(dt) {
     highlightMesh.position.set(tgt.x + 0.5, tgt.y + 0.5, tgt.z + 0.5);
     highlightMesh.visible = true;
   } else highlightMesh.visible = false;
+
+  // 溶岩ダメージ
+  if (playerTouchesBlock(10)) {
+    lavaTimer += dt;
+    damageOverlayEl.style.opacity = '0.55';
+    if (lavaTimer >= LAVA_DEATH_AT) {
+      pos.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
+      velocity.set(0, 0, 0);
+      lavaTimer = 0;
+      damageOverlayEl.style.opacity = '0';
+    }
+  } else if (lavaTimer > 0) {
+    lavaTimer = 0;
+    damageOverlayEl.style.opacity = '0';
+  }
 }
 
 function updateEntities(dt) {
@@ -1321,6 +1401,7 @@ function startWorldGen() {
   loadingText.textContent = 'ワールド生成中...';
   setTimeout(() => {
     generateTerrain();
+    placeLava();
     placeCaveEntrances();
     clearSpawnArea();
     progressBar.style.width = '40%';
