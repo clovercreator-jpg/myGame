@@ -131,7 +131,7 @@
 import * as THREE from 'three';
 
 const WORLD_SIZE = 768;
-const WORLD_HEIGHT = 80;
+const WORLD_HEIGHT = 96;
 const CHUNK_SIZE = 16;
 const CHUNKS_PER_SIDE = WORLD_SIZE / CHUNK_SIZE;
 const VIEW_DIST = 6;
@@ -195,13 +195,14 @@ const biomeHash = makeHash(42424);
 
 function terrainHeight(x, z) {
   const base = fbm(heightHash, x / 80, z / 80, 4);
-  const mtn = smoothNoise(mountainHash, x / 180, z / 180);
+  const mtn = fbm(mountainHash, x / 220, z / 220, 3, 0.55);
   let h = 30 + base * 6;
-  if (mtn > 0.25) {
-    const f = (mtn - 0.25) / 0.75;
-    h += f * f * 36;
+  if (mtn > 0.12) {
+    const f = (mtn - 0.12) / 0.88;
+    const detail = smoothNoise(mountainHash, x / 28, z / 28);
+    h += Math.pow(f, 1.35) * 58 + f * detail * 6;
   }
-  return Math.max(18, Math.min(WORLD_HEIGHT - 10, Math.round(h)));
+  return Math.max(18, Math.min(WORLD_HEIGHT - 6, Math.round(h)));
 }
 function isForestAt(x, z) {
   return fbm(biomeHash, x / 110, z / 110, 2) > 0.18;
@@ -271,6 +272,13 @@ const leavesTex = makeTexture('leaves', ctx => {
   for (let i = 0; i < 90; i++) { ctx.fillStyle = palette[(Math.random() * palette.length) | 0];
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1); }
 });
+const snowTex = makeTexture('snow', ctx => {
+  ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 25; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#e2e6ee' : '#ffffff';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
 
 const grassMaterials = [
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
@@ -292,8 +300,9 @@ const logMaterials = [
   new THREE.MeshLambertMaterial({ map: logSideTex }),
 ];
 const leavesMaterial = new THREE.MeshLambertMaterial({ map: leavesTex });
+const snowMaterial   = new THREE.MeshLambertMaterial({ map: snowTex });
 
-// 0:air 1:grass 2:cobble 3:bedrock 4:log 5:leaves 6:dirt
+// 0:air 1:grass 2:cobble 3:bedrock 4:log 5:leaves 6:dirt 8:snow
 const BLOCK_TYPES = {
   1: { material: grassMaterials,  icon: 'grassTop' },
   2: { material: cobbleMaterial,  icon: 'cobble' },
@@ -301,6 +310,7 @@ const BLOCK_TYPES = {
   4: { material: logMaterials,    icon: 'logSide' },
   5: { material: leavesMaterial,  icon: 'leaves' },
   6: { material: dirtMaterial,    icon: 'dirt' },
+  8: { material: snowMaterial,    icon: 'snow' },
 };
 
 // --- World data ---
@@ -332,13 +342,18 @@ function generateTerrain() {
   for (let x = 0; x < WORLD_SIZE; x++) {
     for (let z = 0; z < WORLD_SIZE; z++) {
       const h = terrainHeight(x, z);
-      const isMountain = h >= 50;
+      const isMountain = h >= 48;
+      const isSnowy = h >= 62;
       setWorld(x, 0, z, 3);
       for (let y = 1; y < h; y++) {
         if (!isMountain && y >= h - 3) setWorld(x, y, z, 6); // dirt
         else setWorld(x, y, z, 2); // cobble
       }
-      setWorld(x, h, z, isMountain ? 2 : 1);
+      let top;
+      if (isSnowy) top = 8;            // snow cap
+      else if (isMountain) top = 2;    // rocky peak
+      else top = 1;                    // grass
+      setWorld(x, h, z, top);
     }
   }
 }
@@ -385,7 +400,7 @@ function placeTrees() {
     const tz = 4 + ((Math.random() * (WORLD_SIZE - 8)) | 0);
     if (!isForestAt(tx, tz)) continue;
     const h = terrainHeight(tx, tz);
-    if (h >= 50) continue;
+    if (h >= 48) continue;
     if (Math.abs(tx - SPAWN_X) < 6 && Math.abs(tz - SPAWN_Z) < 6) continue;
     const cx = (tx / TREE_CELL) | 0, cz = (tz / TREE_CELL) | 0;
     let tooClose = false;
@@ -815,7 +830,7 @@ function spawnEntities() {
     const z = 4 + Math.random() * (WORLD_SIZE - 8);
     if (!isForestAt(x, z)) continue;
     const h = terrainHeight(x | 0, z | 0);
-    if (h >= 50) continue;
+    if (h >= 48) continue;
     if (Math.abs(x - SPAWN_X) < 20 && Math.abs(z - SPAWN_Z) < 20) continue;
     entities.push(new Pig(x, h + 1, z));
     pigCount++;
@@ -826,7 +841,7 @@ function spawnEntities() {
     const x = 4 + Math.random() * (WORLD_SIZE - 8);
     const z = 4 + Math.random() * (WORLD_SIZE - 8);
     const h = terrainHeight(x | 0, z | 0);
-    if (h >= 65) continue;
+    if (h >= 70) continue;
     if (Math.abs(x - SPAWN_X) < 25 && Math.abs(z - SPAWN_Z) < 25) continue;
     entities.push(new Creeper(x, h + 1, z));
     creeperCount++;
