@@ -652,6 +652,40 @@ const player = new THREE.Object3D();
 let spawnFeetY = terrainHeight(SPAWN_X, SPAWN_Z) + 1;
 player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
 
+// 洞窟の地表入り口を開ける
+function placeCaveEntrances() {
+  const TARGET = 140;
+  let placed = 0;
+  for (let attempt = 0; attempt < TARGET * 14 && placed < TARGET; attempt++) {
+    const x = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
+    const z = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
+    if (Math.abs(x - SPAWN_X) < 12 && Math.abs(z - SPAWN_Z) < 12) continue;
+    const sh = terrainHeight(x, z);
+    if (sh <= WATER_LEVEL + 1) continue;     // 湖の中は避ける
+    if (sh >= 55) continue;                  // 高すぎる山頂も避ける
+    // 直下に洞窟があるか探す
+    let caveY = -1;
+    for (let y = sh - 2; y >= 5; y--) {
+      if (world[idx(x, y, z)] === 0) { caveY = y; break; }
+    }
+    if (caveY < 0 || sh - caveY > 14) continue; // 浅い洞窟だけ繋ぐ
+    // 1x1〜2x2 のシャフトを掘る
+    const size = Math.random() < 0.55 ? 2 : 1;
+    for (let dx = 0; dx < size; dx++) {
+      for (let dz = 0; dz < size; dz++) {
+        const tx = x + dx, tz = z + dz;
+        if (tx < 1 || tx >= WORLD_SIZE - 1 || tz < 1 || tz >= WORLD_SIZE - 1) continue;
+        for (let y = caveY + 1; y <= sh; y++) {
+          const t = world[idx(tx, y, tz)];
+          if (t === 9) continue; // 水は残す (上にあれば)
+          setWorld(tx, y, tz, 0);
+        }
+      }
+    }
+    placed++;
+  }
+}
+
 function clearSpawnArea() {
   let baseY = terrainHeight(SPAWN_X, SPAWN_Z);
   if (baseY < WATER_LEVEL + 2) baseY = WATER_LEVEL + 2;
@@ -958,7 +992,7 @@ function explode(x, y, z) {
         if (d > R) continue;
         const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz);
         const t = getBlock(bx, by, bz);
-        if (t === 0 || t === 3) continue; // 岩盤は壊れない
+        if (t === 0 || t === 3 || t === 9) continue; // 岩盤と水は壊れない
         if (Math.random() < 1 - d / R - 0.1) setBlock(bx, by, bz, 0);
       }
     }
@@ -1182,7 +1216,7 @@ function tryBreak() {
   const tgt = raycastBlock();
   if (!tgt) return;
   const t = getBlock(tgt.x, tgt.y, tgt.z);
-  if (t === 0 || t === 3) return;
+  if (t === 0 || t === 3 || t === 9) return; // 岩盤と水は壊せない
   setBlock(tgt.x, tgt.y, tgt.z, 0);
 }
 function tryPlace() {
@@ -1287,6 +1321,7 @@ function startWorldGen() {
   loadingText.textContent = 'ワールド生成中...';
   setTimeout(() => {
     generateTerrain();
+    placeCaveEntrances();
     clearSpawnArea();
     progressBar.style.width = '40%';
     setTimeout(() => {
