@@ -226,10 +226,12 @@ function smoothNoise3D(hash, x, y, z) {
 const caveHash1 = makeHash3D(7777);
 const caveHash2 = makeHash3D(8888);
 const stoneHash = makeHash3D(33337);
+const entranceHash = makeHash3D(54321);
 function isCave(x, y, z) {
-  const n1 = smoothNoise3D(caveHash1, x * 0.045, y * 0.09, z * 0.045);
-  const n2 = smoothNoise3D(caveHash2, x * 0.04,  y * 0.10, z * 0.04);
-  return Math.abs(n1) < 0.18 && Math.abs(n2) < 0.18;
+  // 低周波 + しきい値高めで広い洞窟空間
+  const n1 = smoothNoise3D(caveHash1, x * 0.028, y * 0.055, z * 0.028);
+  const n2 = smoothNoise3D(caveHash2, x * 0.024, y * 0.06,  z * 0.024);
+  return Math.abs(n1) < 0.24 && Math.abs(n2) < 0.24;
 }
 
 const WATER_LEVEL = 25;
@@ -698,37 +700,52 @@ const player = new THREE.Object3D();
 let spawnFeetY = terrainHeight(SPAWN_X, SPAWN_Z) + 1;
 player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
 
-// 洞窟の地表入り口を開ける
+// 自然な形の洞窟入り口
+function carveNaturalEntrance(cx, cz, sh, caveY) {
+  const baseRadius = 1.9 + Math.random() * 1.1; // 1.9..3.0
+  for (let y = sh + 1; y >= caveY - 1; y--) {
+    // 縦方向に蛇行
+    const wobbleX = smoothNoise3D(entranceHash, cx * 0.3, y * 0.35, cz * 0.3) * 2.2;
+    const wobbleZ = smoothNoise3D(entranceHash, cx * 0.3 + 313, y * 0.35, cz * 0.3 + 313) * 2.2;
+    const centerX = cx + 0.5 + wobbleX;
+    const centerZ = cz + 0.5 + wobbleZ;
+    for (let dx = -5; dx <= 5; dx++) {
+      for (let dz = -5; dz <= 5; dz++) {
+        const tx = cx + dx, tz = cz + dz;
+        if (tx < 1 || tx >= WORLD_SIZE - 1 || tz < 1 || tz >= WORLD_SIZE - 1) continue;
+        if (y < 0 || y >= WORLD_HEIGHT) continue;
+        const distX = (tx + 0.5) - centerX;
+        const distZ = (tz + 0.5) - centerZ;
+        const dist = Math.hypot(distX, distZ);
+        // 縁を不規則に
+        const edge = smoothNoise3D(entranceHash, tx * 0.55 + 700, y * 0.4, tz * 0.55 + 700);
+        const radius = baseRadius + edge * 1.0;
+        if (dist > radius) continue;
+        const t = world[idx(tx, y, tz)];
+        if (t === 9) continue; // 水は残す
+        setWorld(tx, y, tz, 0);
+      }
+    }
+  }
+}
+
 function placeCaveEntrances() {
-  const TARGET = 240;
+  const TARGET = 180;
   let placed = 0;
-  for (let attempt = 0; attempt < TARGET * 20 && placed < TARGET; attempt++) {
-    const x = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
-    const z = 8 + ((Math.random() * (WORLD_SIZE - 16)) | 0);
-    if (Math.abs(x - SPAWN_X) < 14 && Math.abs(z - SPAWN_Z) < 14) continue;
+  for (let attempt = 0; attempt < TARGET * 18 && placed < TARGET; attempt++) {
+    const x = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
+    const z = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
+    if (Math.abs(x - SPAWN_X) < 16 && Math.abs(z - SPAWN_Z) < 16) continue;
     const sh = terrainHeight(x, z);
     if (sh <= WATER_LEVEL + 1) continue;
     if (sh >= 55) continue;
-    // 直下に洞窟があるか探す
+    // 直下に洞窟があるか
     let caveY = -1;
     for (let y = sh - 2; y >= 5; y--) {
       if (world[idx(x, y, z)] === 0) { caveY = y; break; }
     }
-    if (caveY < 0 || sh - caveY > 20) continue;
-    // 2x2 〜 3x3 のシャフトを掘る (確実に視認できる大きさ)
-    const sizeX = 2 + (Math.random() < 0.35 ? 1 : 0);
-    const sizeZ = 2 + (Math.random() < 0.35 ? 1 : 0);
-    for (let dx = 0; dx < sizeX; dx++) {
-      for (let dz = 0; dz < sizeZ; dz++) {
-        const tx = x + dx, tz = z + dz;
-        if (tx < 1 || tx >= WORLD_SIZE - 1 || tz < 1 || tz >= WORLD_SIZE - 1) continue;
-        for (let y = caveY + 1; y <= sh; y++) {
-          const t = world[idx(tx, y, tz)];
-          if (t === 9) continue;
-          setWorld(tx, y, tz, 0);
-        }
-      }
-    }
+    if (caveY < 0 || sh - caveY > 22) continue;
+    carveNaturalEntrance(x, z, sh, caveY);
     placed++;
   }
 }
