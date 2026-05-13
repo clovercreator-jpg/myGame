@@ -562,8 +562,28 @@ function placeTrees() {
   }
 }
 
-const SPAWN_X = WORLD_SIZE / 2;
-const SPAWN_Z = WORLD_SIZE / 2;
+let SPAWN_X = WORLD_SIZE / 2;
+let SPAWN_Z = WORLD_SIZE / 2;
+
+function chooseSpawn() {
+  const cx = WORLD_SIZE / 2;
+  const cz = WORLD_SIZE / 2;
+  for (let r = 0; r <= 220; r += 4) {
+    for (let attempts = 0; attempts < 20; attempts++) {
+      const angle = Math.random() * Math.PI * 2;
+      const tx = ((cx + Math.cos(angle) * r) | 0);
+      const tz = ((cz + Math.sin(angle) * r) | 0);
+      if (tx < 40 || tx >= WORLD_SIZE - 40 || tz < 40 || tz >= WORLD_SIZE - 40) continue;
+      const h = terrainHeight(tx, tz);
+      if (h <= WATER_LEVEL + 1) continue;
+      if (h >= 42) continue;
+      if (isForestAt(tx, tz)) continue;
+      SPAWN_X = tx;
+      SPAWN_Z = tz;
+      return;
+    }
+  }
+}
 
 // --- チャンク ---
 const blockGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -1352,6 +1372,12 @@ const villageLocations = [];
 
 function placeVillages() {
   const TARGET = 2;
+  // 1 つ目: プレイヤースポーン地点
+  {
+    const h = terrainHeight(SPAWN_X, SPAWN_Z);
+    villageLocations.push({ x: SPAWN_X, z: SPAWN_Z, y: h });
+    buildVillage(SPAWN_X, SPAWN_Z, h);
+  }
   for (let attempt = 0; attempt < 600 && villageLocations.length < TARGET; attempt++) {
     const vx = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
     const vz = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
@@ -1848,6 +1874,7 @@ let worldReady = false;
 function startWorldGen() {
   loadingText.textContent = 'ワールド生成中...';
   setTimeout(() => {
+    chooseSpawn();
     generateTerrain();
     placeLava();
     placeCaveEntrances();
