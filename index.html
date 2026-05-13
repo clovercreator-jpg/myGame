@@ -852,7 +852,24 @@ class Entity {
     this.onGround = false;
     this.radius = 0.4;
     this.height = 1.0;
+    this.hp = 10;
+    this.hurtTimer = 0;
     scene.add(this.group);
+  }
+  takeDamage(amount) {
+    if (this.dead) return;
+    this.hp -= amount;
+    this.hurtTimer = 0.18;
+    if (this.hp <= 0) this.dead = true;
+  }
+  tickHurt(dt) {
+    if (this.hurtTimer > 0) {
+      this.hurtTimer -= dt;
+      const f = Math.max(0, this.hurtTimer / 0.18);
+      this.group.scale.setScalar(1 + f * 0.18);
+    } else if (this.group.scale.x !== 1) {
+      this.group.scale.set(1, 1, 1);
+    }
   }
   applyGravity(dt) {
     this.velocity.y -= 28 * dt;
@@ -896,6 +913,7 @@ class Entity {
 class Pig extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
+    this.hp = 5;
     this.radius = 0.45;
     this.height = 0.95;
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.3), pigBodyMat);
@@ -1104,6 +1122,8 @@ const golemEyeMat  = new THREE.MeshBasicMaterial({ color: 0xff5040 });
 class IronGolem extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
+    this.hp = 50;
+    this.attackCooldown = 0;
     this.radius = 0.55;
     this.height = 2.7;
     const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.4, 0.6), golemBodyMat);
@@ -1132,14 +1152,17 @@ class IronGolem extends Entity {
   }
   update(dt) {
     // 近くのクリーパーを探して攻撃
-    let target = null, targetD = 14;
+    let target = null, targetD = 16;
     for (const e of entities) {
-      if (!(e instanceof Creeper) || e.dead || e.exploded) continue;
+      if (e === this || e.dead) continue;
+      if (!(e instanceof Creeper) && !(e instanceof Zombie)) continue;
+      if (e instanceof Creeper && e.exploded) continue;
       const dx = e.group.position.x - this.group.position.x;
       const dz = e.group.position.z - this.group.position.z;
       const d = Math.hypot(dx, dz);
       if (d < targetD) { target = e; targetD = d; }
     }
+    this.attackCooldown -= dt;
     if (target) {
       const dx = target.group.position.x - this.group.position.x;
       const dz = target.group.position.z - this.group.position.z;
@@ -1149,7 +1172,10 @@ class IronGolem extends Entity {
       this.velocity.z = Math.cos(this.dir) * 2.0;
       this.group.rotation.y = this.dir;
       this.animateLegs(dt * 7);
-      if (d < 1.6) { target.dead = true; }
+      if (d < 1.8 && this.attackCooldown <= 0) {
+        target.takeDamage(4);
+        this.attackCooldown = 0.6;
+      }
     } else {
       this.timer -= dt;
       if (this.timer <= 0) {
@@ -1169,6 +1195,85 @@ class IronGolem extends Entity {
       const fz = this.group.position.z + Math.cos(this.dir) * 0.6;
       if (this.collidesAt(fx, this.group.position.y, fz) &&
           !this.collidesAt(fx, this.group.position.y + 1, fz)) this.velocity.y = 7;
+    }
+    this.applyGravity(dt);
+  }
+}
+
+// ゾンビ
+const zombieSkinMat  = new THREE.MeshLambertMaterial({ color: 0x4d7044 });
+const zombieClothMat = new THREE.MeshLambertMaterial({ color: 0x2a3a78 });
+const zombiePantsMat = new THREE.MeshLambertMaterial({ color: 0x1c3868 });
+
+class Zombie extends Entity {
+  constructor(x, y, z, vx, vz) {
+    super(x, y, z);
+    this.hp = 10;
+    this.radius = 0.32;
+    this.height = 1.9;
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), zombiePantsMat);
+    lower.position.y = 0.5;
+    this.group.add(lower);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.35), zombieClothMat);
+    upper.position.y = 1.2;
+    this.group.add(upper);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), zombieSkinMat);
+    head.position.y = 1.72;
+    this.group.add(head);
+    const eyeGeo = new THREE.BoxGeometry(0.09, 0.06, 0.02);
+    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.12, 1.78, 0.245); this.group.add(eL);
+    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set( 0.12, 1.78, 0.245); this.group.add(eR);
+    // 前方に伸びた腕
+    const armGeo = new THREE.BoxGeometry(0.18, 0.6, 0.35);
+    const armL = new THREE.Mesh(armGeo, zombieSkinMat); armL.position.set(-0.36, 1.25, 0.18); this.group.add(armL);
+    const armR = new THREE.Mesh(armGeo, zombieSkinMat); armR.position.set( 0.36, 1.25, 0.18); this.group.add(armR);
+    this.homeX = vx; this.homeZ = vz;
+    this.attackCooldown = 0;
+  }
+  update(dt) {
+    // 最寄りの村人 or ゴーレムを探す
+    let target = null, td = 18;
+    for (const e of entities) {
+      if (e === this || e.dead) continue;
+      if (!(e instanceof Villager) && !(e instanceof IronGolem)) continue;
+      const dx = e.group.position.x - this.group.position.x;
+      const dz = e.group.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d < td) { target = e; td = d; }
+    }
+    this.attackCooldown -= dt;
+    if (target) {
+      const dx = target.group.position.x - this.group.position.x;
+      const dz = target.group.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      this.dir = Math.atan2(dx, dz);
+      this.velocity.x = Math.sin(this.dir) * 1.5;
+      this.velocity.z = Math.cos(this.dir) * 1.5;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 8);
+      if (d < 1.5 && this.attackCooldown <= 0) {
+        target.takeDamage(1);
+        this.attackCooldown = 0.7;
+      }
+      if (this.onGround) {
+        const fx = this.group.position.x + Math.sin(this.dir) * 0.5;
+        const fz = this.group.position.z + Math.cos(this.dir) * 0.5;
+        if (this.collidesAt(fx, this.group.position.y, fz) &&
+            !this.collidesAt(fx, this.group.position.y + 1, fz)) this.velocity.y = 7;
+      }
+    } else {
+      this.timer -= dt;
+      if (this.timer <= 0) {
+        const dx = this.homeX - this.group.position.x;
+        const dz = this.homeZ - this.group.position.z;
+        if (Math.hypot(dx, dz) > 35) this.dir = Math.atan2(dx, dz);
+        else this.dir = Math.random() * Math.PI * 2;
+        this.timer = 2 + Math.random() * 3;
+      }
+      this.velocity.x = Math.sin(this.dir) * 0.9;
+      this.velocity.z = Math.cos(this.dir) * 0.9;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 5);
     }
     this.applyGravity(dt);
   }
@@ -1243,10 +1348,11 @@ function buildVillage(cx, cz, baseY) {
   entities.push(new IronGolem(cx + 0.5, baseY + 1, cz + 0.5));
 }
 
+const villageLocations = [];
+
 function placeVillages() {
   const TARGET = 2;
-  const placed = [];
-  for (let attempt = 0; attempt < 600 && placed.length < TARGET; attempt++) {
+  for (let attempt = 0; attempt < 600 && villageLocations.length < TARGET; attempt++) {
     const vx = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
     const vz = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
     const h = terrainHeight(vx, vz);
@@ -1255,12 +1361,31 @@ function placeVillages() {
     if (isForestAt(vx, vz)) continue;
     if (Math.abs(vx - SPAWN_X) < 80 && Math.abs(vz - SPAWN_Z) < 80) continue;
     let tooClose = false;
-    for (const p of placed) {
+    for (const p of villageLocations) {
       if (Math.abs(p.x - vx) < 140 && Math.abs(p.z - vz) < 140) { tooClose = true; break; }
     }
     if (tooClose) continue;
-    placed.push({ x: vx, z: vz, y: h });
+    villageLocations.push({ x: vx, z: vz, y: h });
     buildVillage(vx, vz, h);
+  }
+}
+
+function spawnZombies() {
+  for (const v of villageLocations) {
+    let count = 0;
+    for (let tries = 0; tries < 80 && count < 4; tries++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 18 + Math.random() * 18;
+      const zx = (v.x + Math.cos(angle) * dist) | 0;
+      const zz = (v.z + Math.sin(angle) * dist) | 0;
+      if (zx < 4 || zx >= WORLD_SIZE - 4 || zz < 4 || zz >= WORLD_SIZE - 4) continue;
+      const h = terrainHeight(zx, zz);
+      if (h <= WATER_LEVEL + 1 || h >= 50) continue;
+      const top = getBlock(zx, h, zz);
+      if (top === 0 || top === 9) continue;
+      entities.push(new Zombie(zx + 0.5, h + 1, zz + 0.5, v.x, v.z));
+      count++;
+    }
   }
 }
 
@@ -1300,6 +1425,8 @@ function spawnEntities() {
       break;
     }
   }
+  // ゾンビ (村の近く)
+  spawnZombies();
 }
 
 // --- 爆発 ---
@@ -1520,7 +1647,7 @@ function raycastBlock() {
       if (lastAxis === 0) px -= lastSign;
       else if (lastAxis === 1) py -= lastSign;
       else if (lastAxis === 2) pz -= lastSign;
-      return { x, y, z, placeX: px, placeY: py, placeZ: pz };
+      return { x, y, z, placeX: px, placeY: py, placeZ: pz, distance: t };
     }
     if (tMaxX < tMaxY && tMaxX < tMaxZ) { x += stepX; t = tMaxX; tMaxX += tDeltaX; lastAxis = 0; lastSign = stepX; }
     else if (tMaxY < tMaxZ) { y += stepY; t = tMaxY; tMaxY += tDeltaY; lastAxis = 1; lastSign = stepY; }
@@ -1528,6 +1655,31 @@ function raycastBlock() {
   }
   return null;
 }
+
+const _entityRaycaster = new THREE.Raycaster();
+function raycastEntity() {
+  camera.getWorldPosition(_origin);
+  camera.getWorldDirection(_dir);
+  _entityRaycaster.set(_origin, _dir);
+  _entityRaycaster.far = REACH;
+  let closest = null;
+  let closestDist = REACH + 1;
+  for (const e of entities) {
+    if (e.dead) continue;
+    const dx = e.group.position.x - _origin.x;
+    const dy = (e.group.position.y + this_eh(e)) - _origin.y;
+    const dz = e.group.position.z - _origin.z;
+    if (dx*dx + dy*dy + dz*dz > (REACH + 3) * (REACH + 3)) continue;
+    const hits = _entityRaycaster.intersectObject(e.group, true);
+    if (hits.length > 0 && hits[0].distance < closestDist) {
+      closest = e;
+      closestDist = hits[0].distance;
+    }
+  }
+  if (!closest) return null;
+  return { entity: closest, distance: closestDist };
+}
+function this_eh(e) { return (e.height || 1) * 0.5; }
 
 function intersectsPlayer(bx, by, bz) {
   const pos = player.position;
@@ -1547,12 +1699,18 @@ function toggleDoor(x, y, z) {
 }
 
 function tryBreak() {
-  const tgt = raycastBlock();
-  if (!tgt) return;
-  const t = getBlock(tgt.x, tgt.y, tgt.z);
-  if (t === 13 || t === 14) { toggleDoor(tgt.x, tgt.y, tgt.z); return; }
-  if (t === 0 || t === 3 || t === 9 || t === 10) return; // 岩盤・水・溶岩は壊せない
-  setBlock(tgt.x, tgt.y, tgt.z, 0);
+  const block = raycastBlock();
+  const ent = raycastEntity();
+  // モブとブロックで近い方を選ぶ
+  if (ent && (!block || ent.distance < block.distance)) {
+    ent.entity.takeDamage(1);
+    return;
+  }
+  if (!block) return;
+  const t = getBlock(block.x, block.y, block.z);
+  if (t === 13 || t === 14) { toggleDoor(block.x, block.y, block.z); return; }
+  if (t === 0 || t === 3 || t === 9 || t === 10) return;
+  setBlock(block.x, block.y, block.z, 0);
 }
 function tryPlace() {
   const tgt = raycastBlock();
@@ -1679,6 +1837,7 @@ function updateEntities(dt) {
     const dx = e.group.position.x - px;
     const dz = e.group.position.z - pz;
     if (dx*dx + dz*dz < 90 * 90) e.update(dt);
+    e.tickHurt(dt);
     if (e.dead) { scene.remove(e.group); entities.splice(i, 1); }
   }
 }
