@@ -49,7 +49,7 @@
     background: rgba(0,0,0,0.45); border-radius: 6px; z-index: 5;
   }
   .slot {
-    width: 46px; height: 46px;
+    width: 40px; height: 40px;
     border: 2px solid rgba(255,255,255,0.3); border-radius: 4px;
     background-size: cover; image-rendering: pixelated;
     position: relative; cursor: pointer;
@@ -96,24 +96,25 @@
 <body>
 <div id="damageOverlay"></div>
 <div id="coords">XYZ: -- / -- / --</div>
-<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-7: 選択</div>
+<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-8: 選択</div>
 <div id="crosshair"></div>
 <div id="blocker">
   <h1>Minecraft風ゲーム</h1>
   <p id="loadingText">ワールド生成中...</p>
   <div id="progress"><div id="progressBar"></div></div>
   <p>WASD: 移動 / Space: ジャンプ / マウス: 視点 / ESC: 終了</p>
-  <p>左クリック: 壊す / 右クリック: 置く / 1-7: ブロック選択</p>
+  <p>左クリック: 壊す / 右クリック: 置く / 1-8: ブロック選択 / ドアはクリックで開閉</p>
   <p style="color:#f88">⚠ 緑のクリーパーに近付くと爆発します</p>
 </div>
 <div id="hotbar">
-  <div class="slot selected" data-block="1" data-num="1"></div>
-  <div class="slot"          data-block="2" data-num="2"></div>
-  <div class="slot"          data-block="7" data-num="3"></div>
-  <div class="slot"          data-block="6" data-num="4"></div>
-  <div class="slot"          data-block="4" data-num="5"></div>
-  <div class="slot"          data-block="5" data-num="6"></div>
-  <div class="slot"          data-block="8" data-num="7"></div>
+  <div class="slot selected" data-block="1"  data-num="1"></div>
+  <div class="slot"          data-block="2"  data-num="2"></div>
+  <div class="slot"          data-block="7"  data-num="3"></div>
+  <div class="slot"          data-block="6"  data-num="4"></div>
+  <div class="slot"          data-block="4"  data-num="5"></div>
+  <div class="slot"          data-block="5"  data-num="6"></div>
+  <div class="slot"          data-block="8"  data-num="7"></div>
+  <div class="slot"          data-block="11" data-num="8"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -354,6 +355,30 @@ const lavaTex = makeTexture('lava', ctx => {
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
+const planksTex = makeTexture('planks', ctx => {
+  ctx.fillStyle = '#b88758'; ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#8d6839';
+  ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 8, 16, 1); ctx.fillRect(0, 15, 16, 1);
+  for (let i = 0; i < 30; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#a07a4a' : '#c89870';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
+const stairsTex = makeTexture('stairs', ctx => {
+  ctx.fillStyle = '#b88758'; ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#8d6839';
+  ctx.fillRect(0, 8, 16, 1);
+  ctx.fillStyle = '#a07a4a'; ctx.fillRect(0, 9, 16, 7);
+});
+const doorTex = makeTexture('door', ctx => {
+  ctx.fillStyle = '#8d6839'; ctx.fillRect(0, 0, 16, 16);
+  for (let x = 1; x < 16; x += 5) {
+    ctx.fillStyle = '#6b4f2a';
+    ctx.fillRect(x, 0, 1, 16);
+  }
+  ctx.fillStyle = '#2a1a0a';
+  ctx.fillRect(13, 7, 2, 2);
+});
 
 const grassMaterials = [
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
@@ -378,11 +403,15 @@ const leavesMaterial = new THREE.MeshLambertMaterial({ map: leavesTex });
 const snowMaterial   = new THREE.MeshLambertMaterial({ map: snowTex });
 const stoneMaterial  = new THREE.MeshLambertMaterial({ map: stoneTex });
 const lavaMaterial   = new THREE.MeshBasicMaterial({ map: lavaTex });
+const planksMaterial = new THREE.MeshLambertMaterial({ map: planksTex });
+const stairsMaterial = new THREE.MeshLambertMaterial({ map: stairsTex });
+const doorMaterial   = new THREE.MeshLambertMaterial({ map: doorTex });
 const waterMaterial  = new THREE.MeshLambertMaterial({
   map: waterTex, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false
 });
 
 // 0:air 1:grass 2:cobble 3:bedrock 4:log 5:leaves 6:dirt 7:stone 8:snow 9:water 10:lava
+// 11:planks 12:stairs 13:closed door  (14 = open door, treated as air for rendering)
 const BLOCK_TYPES = {
   1:  { material: grassMaterials,  icon: 'grassTop' },
   2:  { material: cobbleMaterial,  icon: 'cobble' },
@@ -394,6 +423,9 @@ const BLOCK_TYPES = {
   8:  { material: snowMaterial,    icon: 'snow' },
   9:  { material: waterMaterial,   icon: 'water' },
   10: { material: lavaMaterial,    icon: 'lava' },
+  11: { material: planksMaterial,  icon: 'planks' },
+  12: { material: stairsMaterial,  icon: 'stairs' },
+  13: { material: doorMaterial,    icon: 'door' },
 };
 
 // --- World data ---
@@ -410,15 +442,16 @@ function isAir(x, y, z) {
   if (y >= WORLD_HEIGHT) return true;
   if (x < 0 || x >= WORLD_SIZE) return false;
   if (z < 0 || z >= WORLD_SIZE) return false;
-  return world[idx(x, y, z)] === 0;
+  const t = world[idx(x, y, z)];
+  return t === 0 || t === 14; // 開いたドアもオクルージョン上は空気
 }
-// 衝突判定用: ワールドの外も「実体」扱い (透明壁の役目)。水と溶岩は通り抜け可能
+// 衝突判定用: ワールドの外も「実体」扱い (透明壁の役目)。水・溶岩・開いたドアは通り抜け可能
 function isSolidForCollision(x, y, z) {
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return true;
   if (y < 0) return true;
   if (y >= WORLD_HEIGHT) return false;
   const t = world[idx(x, y, z)];
-  return t !== 0 && t !== 9 && t !== 10;
+  return t !== 0 && t !== 9 && t !== 10 && t !== 14;
 }
 
 // --- 地形生成 ---
@@ -553,7 +586,7 @@ class Chunk {
         const z = minZ + lz;
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           const t = world[idx(x, y, z)];
-          if (t === 0) continue;
+          if (t === 0 || t === 14) continue; // 開いたドアは描画しない
           if (isAir(x+1,y,z) || isAir(x-1,y,z) || isAir(x,y+1,z) ||
               isAir(x,y-1,z) || isAir(x,y,z+1) || isAir(x,y,z-1)) {
             (buckets[t] = buckets[t] || []).push(x, y, z);
@@ -784,7 +817,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8]);
+const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -1003,7 +1036,233 @@ class Creeper extends Entity {
   }
 }
 
+// 村人
+const villagerHeadMat = new THREE.MeshLambertMaterial({ color: 0xa67c52 });
+const villagerNoseMat = new THREE.MeshLambertMaterial({ color: 0x916744 });
+const villagerRobeMat = new THREE.MeshLambertMaterial({ color: 0x6e6a55 });
+const villagerArmMat  = new THREE.MeshLambertMaterial({ color: 0x9e8e6e });
+
+class Villager extends Entity {
+  constructor(x, y, z) {
+    super(x, y, z);
+    this.radius = 0.3;
+    this.height = 1.95;
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), villagerRobeMat);
+    lower.position.y = 0.55;
+    this.group.add(lower);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.35), villagerRobeMat);
+    upper.position.y = 1.25;
+    this.group.add(upper);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), villagerHeadMat);
+    head.position.y = 1.75;
+    this.group.add(head);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.28), villagerNoseMat);
+    nose.position.set(0, 1.7, 0.32);
+    this.group.add(nose);
+    const eyeGeo = new THREE.BoxGeometry(0.07, 0.07, 0.02);
+    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.13, 1.83, 0.245); this.group.add(eL);
+    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set( 0.13, 1.83, 0.245); this.group.add(eR);
+    const armGeo = new THREE.BoxGeometry(0.16, 0.55, 0.16);
+    const armL = new THREE.Mesh(armGeo, villagerArmMat); armL.position.set(-0.36, 1.2, 0); this.group.add(armL);
+    const armR = new THREE.Mesh(armGeo, villagerArmMat); armR.position.set( 0.36, 1.2, 0); this.group.add(armR);
+    this.homeX = x; this.homeZ = z;
+    this.state = 'idle';
+  }
+  update(dt) {
+    this.timer -= dt;
+    if (this.timer <= 0) {
+      this.state = Math.random() < 0.45 ? 'idle' : 'wander';
+      this.timer = 2 + Math.random() * 4;
+      const dx = this.homeX - this.group.position.x;
+      const dz = this.homeZ - this.group.position.z;
+      if (Math.hypot(dx, dz) > 12) this.dir = Math.atan2(dx, dz);
+      else this.dir = Math.random() * Math.PI * 2;
+    }
+    if (this.state === 'wander') {
+      const speed = 0.8;
+      this.velocity.x = Math.sin(this.dir) * speed;
+      this.velocity.z = Math.cos(this.dir) * speed;
+      this.group.rotation.y = this.dir;
+      if (this.onGround) {
+        const fx = this.group.position.x + Math.sin(this.dir) * 0.45;
+        const fz = this.group.position.z + Math.cos(this.dir) * 0.45;
+        if (this.collidesAt(fx, this.group.position.y, fz) &&
+            !this.collidesAt(fx, this.group.position.y + 1, fz)) this.velocity.y = 6.5;
+      }
+    } else {
+      this.velocity.x = 0; this.velocity.z = 0;
+    }
+    this.applyGravity(dt);
+  }
+}
+
+// アイアンゴーレム
+const golemBodyMat = new THREE.MeshLambertMaterial({ color: 0xc4beb3 });
+const golemDarkMat = new THREE.MeshLambertMaterial({ color: 0x8b8479 });
+const golemEyeMat  = new THREE.MeshBasicMaterial({ color: 0xff5040 });
+
+class IronGolem extends Entity {
+  constructor(x, y, z) {
+    super(x, y, z);
+    this.radius = 0.55;
+    this.height = 2.7;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.4, 0.6), golemBodyMat);
+    body.position.y = 1.45;
+    this.group.add(body);
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.18, 0.65), golemDarkMat);
+    belt.position.y = 0.85;
+    this.group.add(belt);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.6), golemBodyMat);
+    head.position.y = 2.55;
+    this.group.add(head);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 0.22), golemDarkMat);
+    nose.position.set(0, 2.45, 0.31);
+    this.group.add(nose);
+    const eyeGeo = new THREE.BoxGeometry(0.12, 0.08, 0.02);
+    const eL = new THREE.Mesh(eyeGeo, golemEyeMat); eL.position.set(-0.16, 2.65, 0.305); this.group.add(eL);
+    const eR = new THREE.Mesh(eyeGeo, golemEyeMat); eR.position.set( 0.16, 2.65, 0.305); this.group.add(eR);
+    const armGeo = new THREE.BoxGeometry(0.4, 1.7, 0.4);
+    const armL = new THREE.Mesh(armGeo, golemBodyMat); armL.position.set(-0.75, 1.35, 0); this.group.add(armL);
+    const armR = new THREE.Mesh(armGeo, golemBodyMat); armR.position.set( 0.75, 1.35, 0); this.group.add(armR);
+    const legGeo = new THREE.BoxGeometry(0.42, 0.7, 0.45);
+    const legL = new THREE.Mesh(legGeo, golemBodyMat); legL.position.set(-0.28, 0.35, 0); this.group.add(legL);
+    const legR = new THREE.Mesh(legGeo, golemBodyMat); legR.position.set( 0.28, 0.35, 0); this.group.add(legR);
+    this.legs.push(legL, legR);
+    this.homeX = x; this.homeZ = z;
+  }
+  update(dt) {
+    // 近くのクリーパーを探して攻撃
+    let target = null, targetD = 14;
+    for (const e of entities) {
+      if (!(e instanceof Creeper) || e.dead || e.exploded) continue;
+      const dx = e.group.position.x - this.group.position.x;
+      const dz = e.group.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d < targetD) { target = e; targetD = d; }
+    }
+    if (target) {
+      const dx = target.group.position.x - this.group.position.x;
+      const dz = target.group.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      this.dir = Math.atan2(dx, dz);
+      this.velocity.x = Math.sin(this.dir) * 2.0;
+      this.velocity.z = Math.cos(this.dir) * 2.0;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 7);
+      if (d < 1.6) { target.dead = true; }
+    } else {
+      this.timer -= dt;
+      if (this.timer <= 0) {
+        const dx = this.homeX - this.group.position.x;
+        const dz = this.homeZ - this.group.position.z;
+        if (Math.hypot(dx, dz) > 14) this.dir = Math.atan2(dx, dz);
+        else this.dir = Math.random() * Math.PI * 2;
+        this.timer = 3 + Math.random() * 4;
+      }
+      this.velocity.x = Math.sin(this.dir) * 0.6;
+      this.velocity.z = Math.cos(this.dir) * 0.6;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 4);
+    }
+    if (this.onGround) {
+      const fx = this.group.position.x + Math.sin(this.dir) * 0.6;
+      const fz = this.group.position.z + Math.cos(this.dir) * 0.6;
+      if (this.collidesAt(fx, this.group.position.y, fz) &&
+          !this.collidesAt(fx, this.group.position.y + 1, fz)) this.velocity.y = 7;
+    }
+    this.applyGravity(dt);
+  }
+}
+
 const entities = [];
+
+// --- 村 ---
+function buildHouse(hx, hz, floorY) {
+  const W = 5;
+  for (let h = 1; h <= 3; h++) {
+    for (let dx = 0; dx < W; dx++) {
+      for (let dz = 0; dz < W; dz++) {
+        const isPerim = dx === 0 || dx === W-1 || dz === 0 || dz === W-1;
+        if (!isPerim) continue;
+        const isCorner = (dx === 0 || dx === W-1) && (dz === 0 || dz === W-1);
+        setWorld(hx + dx, floorY + h, hz + dz, isCorner ? 4 : 11);
+      }
+    }
+  }
+  // ドア (前面 dz=0, dx=2): 下 + 上
+  setWorld(hx + 2, floorY + 1, hz, 13);
+  setWorld(hx + 2, floorY + 2, hz, 13);
+  // 上面 (屋根) は階段でピラミッド風に
+  for (let dx = 0; dx < W; dx++)
+    for (let dz = 0; dz < W; dz++)
+      setWorld(hx + dx, floorY + 4, hz + dz, 12);
+  // 玄関ステップ
+  if (hz > 0) setWorld(hx + 2, floorY, hz - 1, 12);
+  // 室内クリア
+  for (let h = 1; h <= 3; h++)
+    for (let dx = 1; dx < W - 1; dx++)
+      for (let dz = 1; dz < W - 1; dz++)
+        setWorld(hx + dx, floorY + h, hz + dz, 0);
+}
+
+function buildVillage(cx, cz, baseY) {
+  // 整地: 周囲 20×20
+  for (let dx = -10; dx <= 10; dx++) {
+    for (let dz = -10; dz <= 10; dz++) {
+      const tx = cx + dx, tz = cz + dz;
+      if (tx < 2 || tx >= WORLD_SIZE - 2 || tz < 2 || tz >= WORLD_SIZE - 2) continue;
+      for (let y = baseY + 1; y < WORLD_HEIGHT; y++) {
+        const t = world[idx(tx, y, tz)];
+        if (t !== 0 && t !== 9) setWorld(tx, y, tz, 0);
+      }
+      for (let y = 1; y < baseY; y++) {
+        const t = world[idx(tx, y, tz)];
+        if (t === 0 || t === 9 || t === 10) setWorld(tx, y, tz, 7);
+      }
+      setWorld(tx, baseY, tz, 1);
+    }
+  }
+  // 4 軒の家
+  buildHouse(cx - 7, cz - 7, baseY);
+  buildHouse(cx + 3, cz - 7, baseY);
+  buildHouse(cx - 7, cz + 3, baseY);
+  buildHouse(cx + 3, cz + 3, baseY);
+  // 中央の十字路
+  for (let r = -2; r <= 2; r++) {
+    setWorld(cx + r, baseY, cz, 12);
+    setWorld(cx, baseY, cz + r, 12);
+  }
+  // 村人 6 人 + ゴーレム 1 体
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const r = 4 + Math.random() * 3;
+    const vx = cx + 0.5 + Math.cos(a) * r;
+    const vz = cz + 0.5 + Math.sin(a) * r;
+    entities.push(new Villager(vx, baseY + 1, vz));
+  }
+  entities.push(new IronGolem(cx + 0.5, baseY + 1, cz + 0.5));
+}
+
+function placeVillages() {
+  const TARGET = 2;
+  const placed = [];
+  for (let attempt = 0; attempt < 600 && placed.length < TARGET; attempt++) {
+    const vx = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
+    const vz = 30 + ((Math.random() * (WORLD_SIZE - 60)) | 0);
+    const h = terrainHeight(vx, vz);
+    if (h <= WATER_LEVEL + 1) continue;
+    if (h >= 45) continue;
+    if (isForestAt(vx, vz)) continue;
+    if (Math.abs(vx - SPAWN_X) < 80 && Math.abs(vz - SPAWN_Z) < 80) continue;
+    let tooClose = false;
+    for (const p of placed) {
+      if (Math.abs(p.x - vx) < 140 && Math.abs(p.z - vz) < 140) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+    placed.push({ x: vx, z: vz, y: h });
+    buildVillage(vx, vz, h);
+  }
+}
 
 function spawnEntities() {
   // 豚 (森限定)
@@ -1056,7 +1315,7 @@ function explode(x, y, z) {
         if (d > R) continue;
         const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz);
         const t = getBlock(bx, by, bz);
-        if (t === 0 || t === 3 || t === 9 || t === 10) continue; // 岩盤・水・溶岩は壊れない
+        if (t === 0 || t === 3 || t === 9 || t === 10 || t === 13 || t === 14) continue; // 岩盤・水・溶岩・ドアは壊れない
         if (Math.random() < 1 - d / R - 0.1) setBlock(bx, by, bz, 0);
       }
     }
@@ -1147,6 +1406,7 @@ if (!isTouch) {
       case 'Digit5': selectBlock(4); break;
       case 'Digit6': selectBlock(5); break;
       case 'Digit7': selectBlock(8); break;
+      case 'Digit8': selectBlock(11); break;
     }
   });
   addEventListener('keyup', e => {
@@ -1277,16 +1537,28 @@ function intersectsPlayer(bx, by, bz) {
   return (maxX > bx && minX < bx + 1 && maxZ > bz && minZ < bz + 1 && headY > by && feetY < by + 1);
 }
 
+function toggleDoor(x, y, z) {
+  const t = getBlock(x, y, z);
+  if (t !== 13 && t !== 14) return;
+  const newT = t === 13 ? 14 : 13;
+  setBlock(x, y, z, newT);
+  if (getBlock(x, y + 1, z) === t) setBlock(x, y + 1, z, newT);
+  if (getBlock(x, y - 1, z) === t) setBlock(x, y - 1, z, newT);
+}
+
 function tryBreak() {
   const tgt = raycastBlock();
   if (!tgt) return;
   const t = getBlock(tgt.x, tgt.y, tgt.z);
+  if (t === 13 || t === 14) { toggleDoor(tgt.x, tgt.y, tgt.z); return; }
   if (t === 0 || t === 3 || t === 9 || t === 10) return; // 岩盤・水・溶岩は壊せない
   setBlock(tgt.x, tgt.y, tgt.z, 0);
 }
 function tryPlace() {
   const tgt = raycastBlock();
   if (!tgt) return;
+  const hit = getBlock(tgt.x, tgt.y, tgt.z);
+  if (hit === 13 || hit === 14) { toggleDoor(tgt.x, tgt.y, tgt.z); return; }
   const { placeX: x, placeY: y, placeZ: z } = tgt;
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return;
   if (y < 0 || y >= WORLD_HEIGHT) return;
@@ -1420,6 +1692,7 @@ function startWorldGen() {
     generateTerrain();
     placeLava();
     placeCaveEntrances();
+    placeVillages();
     clearSpawnArea();
     progressBar.style.width = '40%';
     setTimeout(() => {
