@@ -104,7 +104,7 @@
   <p id="loadingText">ワールド生成中...</p>
   <div id="progress"><div id="progressBar"></div></div>
   <p>WASD: 移動 / Space: ジャンプ / マウス: 視点 / ESC: 終了</p>
-  <p>左クリック: 壊す / 右クリック: 置く / 1-8: ブロック選択 / ドアはクリックで開閉</p>
+  <p>左クリック: 壊す / 右クリック: 置く / 1-8: ブロック選択 / ドアはクリックで開閉 / M: BGMミュート</p>
   <p style="color:#f88">⚠ 緑のクリーパーに近付くと爆発します</p>
 </div>
 <div id="hotbar">
@@ -2074,6 +2074,149 @@ function updateDoors() {
     else if (!near && cur === 14 && now - d.lastNear > 1500) toggleDoor(d.x, d.y, d.z);
   }
 }
+
+// --- BGM (Web Audio で5曲を生成。重ねない、ランダム順、合間に静寂) ---
+const NOTE = {
+  'C2':65.41,'D2':73.42,'E2':82.41,'F2':87.31,'G2':98.00,'A2':110.00,'B2':123.47,
+  'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,'B3':246.94,
+  'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'B4':493.88,
+  'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880.00,
+  'Bb2':116.54,'Bb3':233.08,'Bb4':466.16,'F#4':369.99,'_':0
+};
+const BGM_TRACKS = [
+  // 1. ゆったり (Sweden 系)
+  { tone:'sine', vol:0.28, melody:[
+    ['C5',2.0],['E5',1.0],['G5',1.0],['F5',1.5],['E5',0.5],['D5',2.0],
+    ['C5',1.5],['G4',0.5],['A4',1.0],['C5',2.0],['_',0.6],
+    ['B4',1.0],['A4',1.0],['G4',2.5],['_',1.5]
+  ], bass:{ notes:['C3','G2','A2','F2'], dur:4.0, vol:0.16 } },
+  // 2. 弾んだ (Subwoofer 系)
+  { tone:'triangle', vol:0.22, melody:[
+    ['F4',0.3],['A4',0.3],['C5',0.3],['F5',0.3],['C5',0.3],['A4',0.3],
+    ['G4',0.3],['Bb4',0.3],['D5',0.3],['G5',0.3],['D5',0.3],['Bb4',0.3],
+    ['A4',0.6],['F4',0.6],['C5',0.6],['A4',1.2],
+    ['F4',0.3],['A4',0.3],['C5',0.3],['F5',0.6],
+    ['E5',1.2],['D5',1.2],['C5',1.8],['_',1.0]
+  ], bass:{ notes:['F2','C3','Bb2','C3'], dur:1.2, vol:0.14 } },
+  // 3. 神秘的 (洞窟風)
+  { tone:'sine', vol:0.22, melody:[
+    ['A3',4.0],['_',0.6],['E4',1.5],['F4',1.5],['_',1.0],
+    ['D4',2.0],['C4',2.0],['_',0.5],['A3',3.5],['_',0.6],
+    ['G3',2.0],['A3',4.0],['_',1.5]
+  ], bass:{ notes:['A2','F2','E2','A2'], dur:6.0, vol:0.16 } },
+  // 4. 哀愁
+  { tone:'sine', vol:0.25, melody:[
+    ['D5',1.0],['C5',1.0],['A4',1.0],['F4',1.5],['D4',2.5],['_',0.5],
+    ['F5',1.0],['E5',1.0],['D5',1.0],['Bb4',1.5],['A4',2.5],['_',0.5],
+    ['D5',0.6],['F5',0.6],['A5',2.0],
+    ['G5',1.0],['F5',1.0],['E5',1.0],['D5',2.5],['_',1.5]
+  ], bass:{ notes:['D3','Bb2','F2','A2'], dur:3.5, vol:0.16 } },
+  // 5. 夢幻 (倍音付き)
+  { tone:'sine', vol:0.20, harmony:4, melody:[
+    ['C5',2.0],['G5',2.0],['E5',2.0],
+    ['A4',2.0],['F5',2.0],['C5',2.5],['_',0.5],
+    ['D5',1.5],['F5',1.5],['A5',3.0],
+    ['G5',2.0],['E5',2.0],['C5',3.0],['_',1.5]
+  ], bass:{ notes:['C3','A2','F2','G2'], dur:5.0, vol:0.14 } }
+];
+
+let audioCtx = null;
+let masterGain = null;
+let bgmPlaying = false;
+let bgmTimer = null;
+let bgmMuted = false;
+let lastTrackId = -1;
+
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = bgmMuted ? 0 : 0.30;
+    masterGain.connect(audioCtx.destination);
+  } catch (e) {}
+}
+
+function bgmPlayNote(freq, dur, vol, when, tone) {
+  if (!audioCtx || freq <= 0) return;
+  const osc = audioCtx.createOscillator();
+  osc.type = tone;
+  osc.frequency.value = freq;
+  const g = audioCtx.createGain();
+  const att = Math.min(0.05, dur * 0.15);
+  const rel = Math.min(0.4, dur * 0.5);
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(vol, when + att);
+  g.gain.setValueAtTime(vol, when + Math.max(att, dur - rel));
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start(when);
+  osc.stop(when + dur + 0.1);
+}
+
+function scheduleTrack(track) {
+  if (!audioCtx) return 0;
+  const start = audioCtx.currentTime + 0.15;
+  let cursor = start;
+  const tone = track.tone || 'sine';
+  const vol = track.vol || 0.22;
+  for (const [note, dur] of track.melody) {
+    const f = NOTE[note] || 0;
+    if (f > 0) {
+      bgmPlayNote(f, dur, vol, cursor, tone);
+      if (track.harmony) {
+        const hf = f * Math.pow(2, track.harmony / 12);
+        bgmPlayNote(hf, dur, vol * 0.55, cursor, tone);
+      }
+    }
+    cursor += dur;
+  }
+  const total = cursor - start;
+  if (track.bass) {
+    let bt = start;
+    let bi = 0;
+    while (bt < start + total - track.bass.dur * 0.5) {
+      const bf = NOTE[track.bass.notes[bi % track.bass.notes.length]] || 0;
+      if (bf > 0) bgmPlayNote(bf, track.bass.dur, track.bass.vol || 0.15, bt, 'triangle');
+      bt += track.bass.dur;
+      bi++;
+    }
+  }
+  return total;
+}
+
+function playNextBGM() {
+  if (!bgmPlaying || !audioCtx) return;
+  let next;
+  do { next = (Math.random() * BGM_TRACKS.length) | 0; }
+  while (BGM_TRACKS.length > 1 && next === lastTrackId);
+  lastTrackId = next;
+  const duration = scheduleTrack(BGM_TRACKS[next]);
+  const gap = 12 + Math.random() * 18; // 12〜30 秒の静寂
+  if (bgmTimer) clearTimeout(bgmTimer);
+  bgmTimer = setTimeout(playNextBGM, (duration + gap) * 1000);
+}
+
+function startBGM() {
+  initAudio();
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (bgmPlaying) return;
+  bgmPlaying = true;
+  // 最初は少し間を置いてから
+  if (bgmTimer) clearTimeout(bgmTimer);
+  bgmTimer = setTimeout(playNextBGM, 1500);
+}
+
+function toggleBgmMute() {
+  bgmMuted = !bgmMuted;
+  if (masterGain) masterGain.gain.value = bgmMuted ? 0 : 0.30;
+}
+
+addEventListener('mousedown', startBGM);
+addEventListener('keydown',  e => { if (e.code === 'KeyM') toggleBgmMute(); else startBGM(); });
+addEventListener('touchstart', startBGM);
 
 // --- 起動 ---
 let worldReady = false;
