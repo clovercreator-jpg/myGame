@@ -88,6 +88,48 @@
   #jumpBtn  { right: 28px;  bottom: max(80px, env(safe-area-inset-bottom, 0px));  width: 80px; height: 80px; }
   #breakBtn { right: 122px; bottom: max(85px, env(safe-area-inset-bottom, 0px));  width: 64px; height: 64px; background: rgba(220,80,80,0.35); border-color: rgba(255,140,140,0.7); }
   #placeBtn { right: 28px;  bottom: max(170px, env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; background: rgba(80,170,220,0.35); border-color: rgba(140,200,255,0.7); }
+  #settingsBtn {
+    position: absolute; top: 10px; right: 10px;
+    width: 42px; height: 42px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    background: rgba(0,0,0,0.55);
+    color: white; font-size: 22px;
+    cursor: pointer; z-index: 7;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; touch-action: manipulation;
+  }
+  #settingsModal {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+  }
+  .modal-page {
+    background: rgba(30,30,32,0.95);
+    border: 2px solid #555; border-radius: 8px;
+    padding: 20px 24px;
+    width: 280px; max-width: 90vw;
+    color: white; font-family: monospace;
+  }
+  .modal-page h2 { margin: 0 0 14px; text-align: center; font-size: 18px; }
+  .modal-page button, .modal-page select {
+    display: block; width: 100%; padding: 10px;
+    margin: 8px 0; background: #3a3a3a;
+    border: 1px solid #666; color: white;
+    border-radius: 4px; font-size: 15px;
+    cursor: pointer; box-sizing: border-box;
+    font-family: monospace;
+  }
+  .modal-page button:active, .modal-page button:hover { background: #4d4d4d; }
+  .modal-page label {
+    display: block; margin: 10px 0 4px;
+    font-size: 13px; color: #ccc;
+  }
+  .modal-page input[type=range] {
+    width: 100%; margin: 4px 0 10px;
+  }
   #damageOverlay {
     position: absolute; inset: 0; background: red; opacity: 0;
     pointer-events: none; z-index: 4; transition: opacity 0.5s;
@@ -97,8 +139,40 @@
 <body>
 <div id="damageOverlay"></div>
 <div id="coords">XYZ: -- / -- / --</div>
-<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-8: 選択</div>
-<div id="crosshair"></div>
+<div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-8: 選択 / N: 設定</div>
+<button id="settingsBtn" title="設定 (N)">⚙</button>
+<div id="settingsModal" style="display:none">
+  <div class="modal-page" id="settingsMain">
+    <h2>設定</h2>
+    <button id="openAudio">オーディオ設定</button>
+    <button id="openVideo">ビデオ設定</button>
+    <button class="close-settings">閉じる</button>
+  </div>
+  <div class="modal-page" id="settingsAudio" style="display:none">
+    <h2>オーディオ設定</h2>
+    <label>BGM音量: <span id="volumeLabel">50</span></label>
+    <input type="range" id="bgmSlider" min="0" max="100" value="50">
+    <button class="back-settings">戻る</button>
+    <button class="close-settings">閉じる</button>
+  </div>
+  <div class="modal-page" id="settingsVideo" style="display:none">
+    <h2>ビデオ設定</h2>
+    <label>霧:</label>
+    <select id="fogSelect">
+      <option value="off">なし</option>
+      <option value="weak">弱い</option>
+      <option value="normal" selected>普通</option>
+      <option value="strong">強い</option>
+    </select>
+    <label>雲:</label>
+    <select id="cloudSelect">
+      <option value="show" selected>表示</option>
+      <option value="hide">非表示</option>
+    </select>
+    <button class="back-settings">戻る</button>
+    <button class="close-settings">閉じる</button>
+  </div>
+</div>
 <div id="blocker">
   <h1>Minecraft風ゲーム</h1>
   <p id="loadingText">ワールド生成中...</p>
@@ -868,6 +942,48 @@ makeWall(0,           WORLD_SIZE / 2, WORLD_SIZE, Math.PI / 2);
 makeWall(WORLD_SIZE,  WORLD_SIZE / 2, WORLD_SIZE, Math.PI / 2);
 makeWall(WORLD_SIZE/2, 0,            WORLD_SIZE, 0);
 makeWall(WORLD_SIZE/2, WORLD_SIZE,   WORLD_SIZE, 0);
+
+// --- 雲 ---
+let cloudsVisible = true;
+const cloudGroup = new THREE.Group();
+(function createClouds() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const cx = c.getContext('2d');
+  cx.imageSmoothingEnabled = false;
+  cx.clearRect(0, 0, 64, 64);
+  // ピクセル雲のかたまり
+  for (let i = 0; i < 16; i++) {
+    const sx = Math.floor(Math.random() * 56);
+    const sy = Math.floor(Math.random() * 56);
+    const w = 4 + Math.floor(Math.random() * 8);
+    const h = 3 + Math.floor(Math.random() * 5);
+    cx.fillStyle = 'rgba(255,255,255,0.92)';
+    cx.fillRect(sx, sy, w, h);
+    cx.fillStyle = 'rgba(225,228,238,0.7)';
+    cx.fillRect(sx, sy + h, w, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 8);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, opacity: 0.85,
+    depthWrite: false, side: THREE.DoubleSide
+  });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE * 3, WORLD_SIZE * 3), mat);
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(WORLD_SIZE / 2, 188, WORLD_SIZE / 2);
+  cloudGroup.add(plane);
+  scene.add(cloudGroup);
+})();
+function updateClouds(dt) {
+  cloudGroup.visible = cloudsVisible;
+  if (!cloudsVisible) return;
+  const tex = cloudGroup.children[0].material.map;
+  if (tex) tex.offset.x = (tex.offset.x + dt * 0.005) % 1;
+}
 
 // --- ハイライト ---
 const highlightMesh = new THREE.LineSegments(
@@ -1791,7 +1907,8 @@ if (isTouch) {
       const target = t.target;
       if (target.closest('#joystick') || target.closest('#jumpBtn') ||
           target.closest('#breakBtn') || target.closest('#placeBtn') ||
-          target.closest('#hotbar') || target.closest('#blocker')) continue;
+          target.closest('#hotbar') || target.closest('#blocker') ||
+          target.closest('#settingsBtn') || target.closest('#settingsModal')) continue;
       lookTouchId = t.identifier; lookLastX = t.clientX; lookLastY = t.clientY; break;
     }
   }, { passive: true });
@@ -1896,6 +2013,22 @@ function toggleDoor(x, y, z) {
   if (getBlock(x, y - 1, z) === t) setBlock(x, y - 1, z, newT);
 }
 
+function destroyDoor(x, y, z) {
+  const t = getBlock(x, y, z);
+  if (t !== 13 && t !== 14) return;
+  setBlock(x, y, z, 0);
+  const above = getBlock(x, y + 1, z);
+  if (above === 13 || above === 14) setBlock(x, y + 1, z, 0);
+  const below = getBlock(x, y - 1, z);
+  if (below === 13 || below === 14) setBlock(x, y - 1, z, 0);
+  for (let i = doors.length - 1; i >= 0; i--) {
+    const d = doors[i];
+    if (d.x === x && d.z === z && (d.y === y || d.y === y + 1 || d.y === y - 1)) {
+      doors.splice(i, 1);
+    }
+  }
+}
+
 function tryBreak() {
   const block = raycastBlock();
   const ent = raycastEntity();
@@ -1906,7 +2039,7 @@ function tryBreak() {
   }
   if (!block) return;
   const t = getBlock(block.x, block.y, block.z);
-  if (t === 13 || t === 14) { toggleDoor(block.x, block.y, block.z); return; }
+  if (t === 13 || t === 14) { destroyDoor(block.x, block.y, block.z); return; }
   if (t === 0 || t === 3 || t === 9 || t === 10) return;
   setBlock(block.x, block.y, block.z, 0);
 }
@@ -2052,26 +2185,36 @@ function updateEntities(dt) {
 }
 
 // 村人が近くにいるとドアが自動開閉
+// 村人が「ドアを通り抜けたい」と思った時だけ開く: 歩行中 + ドアに向かっている
 function updateDoors() {
   const now = performance.now();
   const px = player.position.x, pz = player.position.z;
   for (const d of doors) {
-    // プレイヤーから遠い (アンロード済みの可能性) ならスキップ
     const dpx = d.x + 0.5 - px;
     const dpz = d.z + 0.5 - pz;
     if (dpx*dpx + dpz*dpz > 100*100) continue;
-    let near = false;
+    let wantsOpen = false;
     for (const e of entities) {
       if (!(e instanceof Villager) || e.dead) continue;
+      if (e.state !== 'wander') continue;                     // 立ち止まり中は開けない
       const vx = e.group.position.x - (d.x + 0.5);
       const vy = e.group.position.y - (d.y + 0.5);
       const vz = e.group.position.z - (d.z + 0.5);
       if (Math.abs(vy) > 3) continue;
-      if (vx*vx + vz*vz < 2*2) { near = true; d.lastNear = now; break; }
+      const dist = Math.sqrt(vx*vx + vz*vz);
+      if (dist >= 2) continue;                                // 2 ブロック以内のみ
+      const speed = Math.hypot(e.velocity.x, e.velocity.z);
+      if (speed < 0.2) continue;
+      // 速度がドアに向いているか
+      const dot = (e.velocity.x * -vx + e.velocity.z * -vz) / (speed * Math.max(dist, 0.001));
+      if (dot < 0.25) continue;
+      wantsOpen = true;
+      d.lastNear = now;
+      break;
     }
     const cur = getBlock(d.x, d.y, d.z);
-    if (near && cur === 13) toggleDoor(d.x, d.y, d.z);
-    else if (!near && cur === 14 && now - d.lastNear > 1500) toggleDoor(d.x, d.y, d.z);
+    if (wantsOpen && cur === 13) toggleDoor(d.x, d.y, d.z);
+    else if (!wantsOpen && cur === 14 && now - d.lastNear > 2000) toggleDoor(d.x, d.y, d.z);
   }
 }
 
@@ -2209,14 +2352,79 @@ function startBGM() {
   bgmTimer = setTimeout(playNextBGM, 1500);
 }
 
+let bgmVolume = 0.30;  // 設定UIで調整
+function applyBgmVolume() {
+  if (masterGain) masterGain.gain.value = bgmMuted ? 0 : bgmVolume;
+}
 function toggleBgmMute() {
   bgmMuted = !bgmMuted;
-  if (masterGain) masterGain.gain.value = bgmMuted ? 0 : 0.30;
+  applyBgmVolume();
 }
 
 addEventListener('mousedown', startBGM);
 addEventListener('keydown',  e => { if (e.code === 'KeyM') toggleBgmMute(); else startBGM(); });
 addEventListener('touchstart', startBGM);
+
+// --- 設定UI ---
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const settingsPages = {
+  main: document.getElementById('settingsMain'),
+  audio: document.getElementById('settingsAudio'),
+  video: document.getElementById('settingsVideo'),
+};
+let settingsOpen = false;
+function showSettingsPage(name) {
+  for (const k in settingsPages) settingsPages[k].style.display = (k === name) ? 'block' : 'none';
+}
+function openSettings() {
+  if (settingsOpen) return;
+  settingsOpen = true;
+  settingsModal.style.display = 'flex';
+  showSettingsPage('main');
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeSettings() {
+  if (!settingsOpen) return;
+  settingsOpen = false;
+  settingsModal.style.display = 'none';
+}
+settingsBtn.addEventListener('click', e => { e.stopPropagation(); openSettings(); });
+settingsBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); openSettings(); }, { passive: false });
+document.getElementById('openAudio').addEventListener('click', () => showSettingsPage('audio'));
+document.getElementById('openVideo').addEventListener('click', () => showSettingsPage('video'));
+document.querySelectorAll('.close-settings').forEach(b => b.addEventListener('click', closeSettings));
+document.querySelectorAll('.back-settings').forEach(b => b.addEventListener('click', () => showSettingsPage('main')));
+addEventListener('keydown', e => {
+  if (e.code === 'KeyN' && !e.repeat) {
+    if (settingsOpen) closeSettings(); else openSettings();
+  }
+});
+
+const bgmSlider = document.getElementById('bgmSlider');
+const volumeLabel = document.getElementById('volumeLabel');
+bgmSlider.addEventListener('input', e => {
+  const v = parseInt(e.target.value, 10);
+  volumeLabel.textContent = v;
+  bgmVolume = (v / 100) * 0.6;
+  if (!audioCtx) initAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  applyBgmVolume();
+});
+// 初期反映
+bgmVolume = 0.30;
+
+const fogSelect = document.getElementById('fogSelect');
+fogSelect.addEventListener('change', e => {
+  const v = e.target.value;
+  const baseFar = VIEW_DIST * CHUNK_SIZE - 4;
+  if (v === 'off') scene.fog = null;
+  else if (v === 'weak')   scene.fog = new THREE.Fog(0x88ccee, baseFar - 16, baseFar + 20);
+  else if (v === 'normal') scene.fog = new THREE.Fog(0x88ccee, 48, baseFar);
+  else if (v === 'strong') scene.fog = new THREE.Fog(0x88ccee, 18, baseFar - 30);
+});
+const cloudSelect = document.getElementById('cloudSelect');
+cloudSelect.addEventListener('change', e => { cloudsVisible = e.target.value === 'show'; });
 
 // --- 起動 ---
 let worldReady = false;
@@ -2287,6 +2495,7 @@ function animate() {
   if (worldReady) {
     processLoadQueue(6);
     rebuildDirtyChunks(2);
+    updateClouds(dt);
     if (pointerLocked) {
       updatePlayer(dt);
       updateEntities(dt);
