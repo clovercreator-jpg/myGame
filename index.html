@@ -45,11 +45,12 @@
   #hotbar {
     position: absolute; bottom: 10px; left: 50%;
     transform: translateX(-50%);
-    display: flex; gap: 4px; padding: 4px;
+    display: grid; grid-template-columns: repeat(6, 38px);
+    gap: 3px; padding: 4px;
     background: rgba(0,0,0,0.45); border-radius: 6px; z-index: 5;
   }
   .slot {
-    width: 40px; height: 40px;
+    width: 38px; height: 38px;
     border: 2px solid rgba(255,255,255,0.3); border-radius: 4px;
     background-size: cover; image-rendering: pixelated;
     position: relative; cursor: pointer;
@@ -58,7 +59,7 @@
   .slot.selected { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.4); }
   .slot::after {
     content: attr(data-num); position: absolute;
-    top: 1px; left: 3px; color: white; font-size: 11px;
+    top: 1px; left: 3px; color: white; font-size: 10px;
     text-shadow: 1px 1px 0 black, -1px -1px 0 black, 1px -1px 0 black, -1px 1px 0 black;
   }
   #touchUI { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 6; }
@@ -115,6 +116,10 @@
   <div class="slot"          data-block="5"  data-num="6"></div>
   <div class="slot"          data-block="8"  data-num="7"></div>
   <div class="slot"          data-block="11" data-num="8"></div>
+  <div class="slot"          data-block="12" data-num="9"></div>
+  <div class="slot"          data-block="13" data-num="0"></div>
+  <div class="slot"          data-block="9"  data-num="Q"></div>
+  <div class="slot"          data-block="10" data-num="E"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -284,126 +289,196 @@ function makeTexture(name, draw) {
   textureCanvases[name] = c;
   return t;
 }
+// Minecraft風のシンプルなピクセルテクスチャ
 const grassTopTex = makeTexture('grassTop', ctx => {
-  ctx.fillStyle = '#5eaa3a'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 40; i++) { ctx.fillStyle = Math.random() < 0.5 ? '#4a8a2e' : '#76c44a';
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1); }
+  ctx.fillStyle = '#5d9d3a'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#4e8a30', '#6dac46', '#558e34', '#75b34a'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.55) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
 });
 const grassSideTex = makeTexture('grassSide', ctx => {
-  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 30; i++) { ctx.fillStyle = Math.random() < 0.5 ? '#6e4423' : '#a06d35';
-    ctx.fillRect((Math.random()*16)|0, 4 + ((Math.random()*12)|0), 1, 1); }
-  ctx.fillStyle = '#5eaa3a'; ctx.fillRect(0, 0, 16, 4);
-  for (let i = 0; i < 18; i++) { ctx.fillStyle = Math.random() < 0.5 ? '#4a8a2e' : '#76c44a';
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*4)|0, 1, 1); }
+  // dirt 基地
+  ctx.fillStyle = '#866043'; ctx.fillRect(0, 0, 16, 16);
+  const dPal = ['#6d4a30', '#9a734f', '#866043', '#74543b'];
+  for (let y = 4; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.55) { ctx.fillStyle = dPal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
+  // 草の上面
+  ctx.fillStyle = '#5d9d3a'; ctx.fillRect(0, 0, 16, 4);
+  const gPal = ['#4e8a30', '#6dac46', '#75b34a'];
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.55) { ctx.fillStyle = gPal[(Math.random()*3)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
+  // 縁の草が下に垂れる
+  for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.5) { ctx.fillStyle = '#4e8a30'; ctx.fillRect(x, 4, 1, 1); }
+    if (Math.random() < 0.3) { ctx.fillStyle = '#5d9d3a'; ctx.fillRect(x, 5, 1, 1); }
+  }
 });
 const dirtTex = makeTexture('dirt', ctx => {
-  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 50; i++) { ctx.fillStyle = Math.random() < 0.5 ? '#6e4423' : '#a06d35';
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1); }
+  ctx.fillStyle = '#866043'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#6d4a30', '#9a734f', '#74543b', '#5a3c25'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.6) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
 });
 const cobbleTex = makeTexture('cobble', ctx => {
   ctx.fillStyle = '#7a7a7a'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 70; i++) { const v = 80 + ((Math.random()*60)|0);
-    ctx.fillStyle = `rgb(${v},${v},${v})`;
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1+((Math.random()*2)|0), 1+((Math.random()*2)|0)); }
-  ctx.fillStyle = '#3a3a3a';
-  ctx.fillRect(0, 7, 16, 1); ctx.fillRect(7, 0, 1, 8);
-  ctx.fillRect(3, 8, 1, 8);  ctx.fillRect(11, 8, 1, 8);
+  // 4 つの石ブロックパターン + 黒の目地
+  const stones = [[0,0,7,7],[8,0,8,7],[0,8,5,8],[6,8,4,8],[11,8,5,8]];
+  for (const [sx, sy, sw, sh] of stones) {
+    for (let y = sy; y < sy + sh; y++) for (let x = sx; x < sx + sw; x++) {
+      const v = 90 + ((Math.random()*60)|0);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+    // ハイライト
+    ctx.fillStyle = '#9c9c9c'; ctx.fillRect(sx, sy, sw, 1); ctx.fillStyle = '#a8a8a8'; ctx.fillRect(sx, sy, 1, sh);
+    // 影
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(sx + sw - 1, sy, 1, sh); ctx.fillRect(sx, sy + sh - 1, sw, 1);
+  }
+  // 黒の目地
+  ctx.fillStyle = '#2e2e2e';
+  ctx.fillRect(7, 0, 1, 8); ctx.fillRect(0, 7, 16, 1); ctx.fillRect(5, 8, 1, 8); ctx.fillRect(10, 8, 1, 8); ctx.fillRect(0, 15, 16, 1);
 });
 const bedrockTex = makeTexture('bedrock', ctx => {
-  ctx.fillStyle = '#3a3a3a'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 90; i++) { const v = 30 + ((Math.random()*55)|0);
-    ctx.fillStyle = `rgb(${v},${v},${v})`;
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1+((Math.random()*2)|0), 1+((Math.random()*2)|0)); }
+  ctx.fillStyle = '#404044'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#2e2e32', '#52525a', '#3a3a40', '#1e1e22'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.7) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
 });
 const logSideTex = makeTexture('logSide', ctx => {
   ctx.fillStyle = '#6b4a26'; ctx.fillRect(0, 0, 16, 16);
-  for (let x = 0; x < 16; x++) if (Math.random() < 0.35) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#553a1d' : '#7d5a30';
+  // 縦の樹皮
+  for (let x = 0; x < 16; x++) {
+    ctx.fillStyle = ['#5a3d1f', '#7d5a30', '#6b4a26', '#503419'][(Math.random()*4)|0];
     ctx.fillRect(x, 0, 1, 16);
+  }
+  // ぽつぽつ節
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = '#3d2810';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
 const logTopTex = makeTexture('logTop', ctx => {
-  ctx.fillStyle = '#a07a45'; ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#a37648'; ctx.fillRect(0, 0, 16, 16);
   ctx.strokeStyle = '#553a1d'; ctx.lineWidth = 1;
-  for (let r = 1; r <= 7; r += 2) ctx.strokeRect(8 - r - 0.5, 8 - r - 0.5, r * 2 + 1, r * 2 + 1);
-  ctx.fillStyle = '#553a1d'; ctx.fillRect(7, 7, 2, 2);
+  for (let r = 1.5; r <= 7; r += 2) ctx.strokeRect(8 - r, 8 - r, r * 2, r * 2);
+  ctx.fillStyle = '#3d2810'; ctx.fillRect(7, 7, 2, 2);
 });
 const leavesTex = makeTexture('leaves', ctx => {
-  ctx.fillStyle = '#3a7a2a'; ctx.fillRect(0, 0, 16, 16);
-  const palette = ['#2d6020', '#46913a', '#549444', '#234a18', '#3a7a2a'];
-  for (let i = 0; i < 90; i++) { ctx.fillStyle = palette[(Math.random() * palette.length) | 0];
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1); }
+  ctx.fillStyle = '#386c20'; ctx.fillRect(0, 0, 16, 16);
+  const palette = ['#2a531a', '#447e2a', '#5c963a', '#386c20', '#1c3f10'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    ctx.fillStyle = palette[(Math.random()*palette.length)|0];
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // たまに穴をあけて葉らしさ
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = '#234a18';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
 });
 const snowTex = makeTexture('snow', ctx => {
-  ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 25; i++) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#e2e6ee' : '#ffffff';
+  ctx.fillStyle = '#fafbfd'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 30; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#dadfe8' : '#ffffff';
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
 const waterTex = makeTexture('water', ctx => {
-  ctx.fillStyle = '#3a78b0'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 30; i++) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#2c5d8a' : '#5494c8';
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  ctx.fillStyle = '#3658a8'; ctx.fillRect(0, 0, 16, 16);
+  const wPal = ['#2c4a92', '#4068c0', '#365fab', '#3a64b5'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const v = Math.sin((x + y * 0.7) * 0.6) + Math.sin(y * 0.4);
+    ctx.fillStyle = v > 0.3 ? '#4068c0' : (v < -0.3 ? '#2c4a92' : wPal[(Math.random()*4)|0]);
+    ctx.fillRect(x, y, 1, 1);
   }
 });
 const stoneTex = makeTexture('stone', ctx => {
-  ctx.fillStyle = '#919191'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 40; i++) {
-    const v = 125 + ((Math.random() * 40) | 0);
-    ctx.fillStyle = `rgb(${v},${v},${v})`;
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  ctx.fillStyle = '#858585'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#7a7a7a', '#9090a0', '#8b8b8b', '#727272'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.45) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
   }
-  for (let i = 0; i < 6; i++) {
-    ctx.fillStyle = '#6e6e6e';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = '#5e5e5e';
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
 const lavaTex = makeTexture('lava', ctx => {
-  ctx.fillStyle = '#d8500e'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 45; i++) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#f0a020' : '#a83b0a';
+  ctx.fillStyle = '#cf4d00'; ctx.fillRect(0, 0, 16, 16);
+  for (let i = 0; i < 80; i++) {
+    const c = ['#ff8a18', '#a93800', '#ffc233', '#e25500', '#7a2400'][(Math.random()*5)|0];
+    ctx.fillStyle = c;
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1 + ((Math.random()*2)|0), 1 + ((Math.random()*2)|0));
   }
-  for (let i = 0; i < 12; i++) {
-    ctx.fillStyle = '#ffd040';
+  // ホットスポット
+  for (let i = 0; i < 14; i++) {
+    ctx.fillStyle = '#ffe06a';
     ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
   }
 });
 const planksTex = makeTexture('planks', ctx => {
-  ctx.fillStyle = '#b88758'; ctx.fillRect(0, 0, 16, 16);
-  ctx.fillStyle = '#8d6839';
-  ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 8, 16, 1); ctx.fillRect(0, 15, 16, 1);
-  for (let i = 0; i < 30; i++) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#a07a4a' : '#c89870';
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  ctx.fillStyle = '#b1845a'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#a07549', '#bd8f63', '#8e6940', '#b1845a'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    ctx.fillStyle = pal[(Math.random()*4)|0];
+    ctx.fillRect(x, y, 1, 1);
   }
+  // 板の境目
+  ctx.fillStyle = '#664628';
+  ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 4, 16, 1);
+  ctx.fillRect(0, 8, 16, 1); ctx.fillRect(0, 12, 16, 1); ctx.fillRect(0, 15, 16, 1);
+  // 板に節
+  ctx.fillStyle = '#7a5535'; ctx.fillRect(3, 1, 1, 1); ctx.fillRect(10, 5, 1, 1);
+  ctx.fillRect(6, 9, 1, 1); ctx.fillRect(13, 13, 1, 1);
 });
 const stairsTex = makeTexture('stairs', ctx => {
-  ctx.fillStyle = '#b88758'; ctx.fillRect(0, 0, 16, 16);
-  ctx.fillStyle = '#8d6839';
-  ctx.fillRect(0, 8, 16, 1);
-  ctx.fillStyle = '#a07a4a'; ctx.fillRect(0, 9, 16, 7);
+  // 板材ベース
+  ctx.fillStyle = '#b1845a'; ctx.fillRect(0, 0, 16, 16);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    ctx.fillStyle = ['#a07549', '#bd8f63', '#b1845a'][(Math.random()*3)|0];
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // 段差の輪郭 (上が一段下がっている感じ)
+  ctx.fillStyle = '#664628';
+  ctx.fillRect(0, 7, 16, 1); ctx.fillRect(0, 8, 8, 1);
+  ctx.fillRect(7, 8, 1, 8); ctx.fillRect(0, 15, 16, 1);
+  // 板の境
+  ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 4, 16, 1); ctx.fillRect(0, 12, 16, 1);
 });
 const doorTex = makeTexture('door', ctx => {
-  ctx.fillStyle = '#8d6839'; ctx.fillRect(0, 0, 16, 16);
-  for (let x = 1; x < 16; x += 5) {
-    ctx.fillStyle = '#6b4f2a';
-    ctx.fillRect(x, 0, 1, 16);
+  ctx.fillStyle = '#a07549'; ctx.fillRect(0, 0, 16, 16);
+  // 板の縦目
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      ctx.fillStyle = ['#8e6940', '#b1845a', '#a07549'][(Math.random()*3)|0];
+      ctx.fillRect(x, y, 1, 1);
+    }
   }
+  // 中央の縦の溝 + 上下の段
+  ctx.fillStyle = '#5a3d23';
+  ctx.fillRect(7, 0, 2, 16);
+  ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 15, 16, 1);
+  ctx.fillRect(0, 7, 16, 1); ctx.fillRect(0, 8, 16, 1);
+  // ハンドル
   ctx.fillStyle = '#2a1a0a';
-  ctx.fillRect(13, 7, 2, 2);
+  ctx.fillRect(13, 7, 2, 3);
+  ctx.fillStyle = '#5a4030';
+  ctx.fillRect(13, 8, 1, 1);
 });
 const deepslateTex = makeTexture('deepslate', ctx => {
-  ctx.fillStyle = '#3a3a42'; ctx.fillRect(0, 0, 16, 16);
-  for (let i = 0; i < 45; i++) {
-    const v = 42 + ((Math.random() * 26) | 0);
-    ctx.fillStyle = `rgb(${v},${v},${v + 5})`;
-    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  ctx.fillStyle = '#363640'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#2a2a32', '#42424c', '#363640', '#1e1e26'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.6) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
   }
+  // 縦のうっすらした筋
+  ctx.fillStyle = '#1c1c22';
+  for (let x = 0; x < 16; x++) if (Math.random() < 0.15) ctx.fillRect(x, 0, 1, 16);
 });
 const cobbledDeepslateTex = makeTexture('cobbledDeepslate', ctx => {
   ctx.fillStyle = '#35353d'; ctx.fillRect(0, 0, 16, 16);
@@ -525,15 +600,15 @@ function generateColumn(x, z) {
   }
 }
 
-// すべての洞窟の床に溶岩を撒く
+// 洞窟の床に溶岩を撒く (表示Y -88 〜 20 = 配列Y 12 〜 120)
 function placeLava() {
   for (let x = 1; x < WORLD_SIZE - 1; x++) {
     for (let z = 1; z < WORLD_SIZE - 1; z++) {
-      for (let y = 3; y < WORLD_HEIGHT - 3; y++) {
+      for (let y = 12; y <= 120; y++) {
         if (world[idx(x, y, z)] !== 0) continue;       // 洞窟内 (空気)
         const below = world[idx(x, y - 1, z)];
         if (below === 0 || below === 9 || below === 10) continue; // 固体床が必要
-        if (Math.random() < 0.13) setWorld(x, y, z, 10);
+        if (Math.random() < 0.14) setWorld(x, y, z, 10);
       }
     }
   }
@@ -895,7 +970,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11]);
+const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11, 12, 13, 9, 10]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -1358,6 +1433,11 @@ class Zombie extends Entity {
 }
 
 const entities = [];
+const doors = []; // 村人 AI が開閉する対象 {x, y, z, lastNear}
+
+function registerDoor(x, y, z) {
+  doors.push({ x, y, z, lastNear: 0 });
+}
 
 // --- 村 ---
 function buildHouse(hx, hz, floorY) {
@@ -1375,6 +1455,7 @@ function buildHouse(hx, hz, floorY) {
   // ドア (前面 dz=0, dx=2): 下 + 上
   setWorld(hx + 2, floorY + 1, hz, 13);
   setWorld(hx + 2, floorY + 2, hz, 13);
+  registerDoor(hx + 2, floorY + 1, hz);
   // 上面 (屋根) は階段でピラミッド風に
   for (let dx = 0; dx < W; dx++)
     for (let dz = 0; dz < W; dz++)
@@ -1389,9 +1470,9 @@ function buildHouse(hx, hz, floorY) {
 }
 
 function buildVillage(cx, cz, baseY) {
-  // 整地: 周囲 20×20
-  for (let dx = -10; dx <= 10; dx++) {
-    for (let dz = -10; dz <= 10; dz++) {
+  // 整地: 周囲 32×34
+  for (let dx = -16; dx <= 16; dx++) {
+    for (let dz = -16; dz <= 18; dz++) {
       const tx = cx + dx, tz = cz + dz;
       if (tx < 2 || tx >= WORLD_SIZE - 2 || tz < 2 || tz >= WORLD_SIZE - 2) continue;
       for (let y = baseY + 1; y < WORLD_HEIGHT; y++) {
@@ -1405,25 +1486,29 @@ function buildVillage(cx, cz, baseY) {
       setWorld(tx, baseY, tz, 1);
     }
   }
-  // 4 軒の家
-  buildHouse(cx - 7, cz - 7, baseY);
-  buildHouse(cx + 3, cz - 7, baseY);
-  buildHouse(cx - 7, cz + 3, baseY);
-  buildHouse(cx + 3, cz + 3, baseY);
+  // 10 軒の家 (3×3 + 1)
+  const housePositions = [
+    [cx - 14, cz - 14], [cx - 4, cz - 14], [cx + 6, cz - 14],
+    [cx - 14, cz - 4 ],                     [cx + 6, cz - 4 ],
+    [cx - 14, cz + 6 ], [cx - 4, cz + 6 ], [cx + 6, cz + 6 ],
+                        [cx - 4, cz + 14], [cx + 6, cz + 14],
+  ];
+  for (const [hx, hz] of housePositions) buildHouse(hx, hz, baseY);
   // 中央の十字路
-  for (let r = -2; r <= 2; r++) {
+  for (let r = -3; r <= 3; r++) {
     setWorld(cx + r, baseY, cz, 12);
     setWorld(cx, baseY, cz + r, 12);
   }
-  // 村人 6 人 + ゴーレム 1 体
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const r = 4 + Math.random() * 3;
+  // 村人 10 人 + ゴーレム 2 体
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const r = 4 + Math.random() * 5;
     const vx = cx + 0.5 + Math.cos(a) * r;
     const vz = cz + 0.5 + Math.sin(a) * r;
     entities.push(new Villager(vx, baseY + 1, vz));
   }
   entities.push(new IronGolem(cx + 0.5, baseY + 1, cz + 0.5));
+  entities.push(new IronGolem(cx - 3.5, baseY + 1, cz + 3.5));
 }
 
 const villageLocations = [];
@@ -1454,11 +1539,11 @@ function placeVillages() {
   }
 }
 
-// 村の周りにゾンビとクリーパーを湧かせる
+// 各村の周りにゾンビを 4 体ずつ
 function spawnVillageMobs() {
   for (const v of villageLocations) {
     let zc = 0;
-    for (let tries = 0; tries < 90 && zc < 4; tries++) {
+    for (let tries = 0; tries < 120 && zc < 4; tries++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 18 + Math.random() * 18;
       const zx = (v.x + Math.cos(angle) * dist) | 0;
@@ -1471,27 +1556,33 @@ function spawnVillageMobs() {
       entities.push(new Zombie(zx + 0.5, h + 1, zz + 0.5, v.x, v.z));
       zc++;
     }
-    let cc = 0;
-    for (let tries = 0; tries < 90 && cc < 3; tries++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 22 + Math.random() * 16;
-      const cx = (v.x + Math.cos(angle) * dist) | 0;
-      const cz = (v.z + Math.sin(angle) * dist) | 0;
-      if (cx < 4 || cx >= WORLD_SIZE - 4 || cz < 4 || cz >= WORLD_SIZE - 4) continue;
-      const h = terrainHeight(cx, cz);
-      if (h <= WATER_LEVEL + 1 || h >= MOUNTAIN_Y + 2) continue;
-      const top = getBlock(cx, h, cz);
-      if (top === 0 || top === 9) continue;
-      entities.push(new Creeper(cx + 0.5, h + 1, cz + 0.5));
-      cc++;
-    }
   }
 }
 
-// 洞窟内にクリーパーとゾンビを湧かせる
+// 洞窟内の湧き
+// クリーパー: 配列Y 12〜120 (表示Y -88〜20) のみ
+// ゾンビ: 洞窟全域
 function spawnCaveMobs() {
-  let count = 0;
-  for (let attempt = 0; attempt < 16000 && count < 60; attempt++) {
+  // クリーパー
+  let cc = 0;
+  for (let attempt = 0; attempt < 14000 && cc < 40; attempt++) {
+    const cx = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
+    const cz = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
+    if (Math.abs(cx - SPAWN_X) < 28 && Math.abs(cz - SPAWN_Z) < 28) continue;
+    for (let tries = 0; tries < 6; tries++) {
+      const cy = 12 + ((Math.random() * 108) | 0); // 12..119
+      if (world[idx(cx, cy, cz)] !== 0) continue;
+      if (world[idx(cx, cy + 1, cz)] !== 0) continue;
+      const below = world[idx(cx, cy - 1, cz)];
+      if (below === 0 || below === 9 || below === 10) continue;
+      entities.push(new Creeper(cx + 0.5, cy, cz + 0.5));
+      cc++;
+      break;
+    }
+  }
+  // ゾンビ
+  let zc = 0;
+  for (let attempt = 0; attempt < 16000 && zc < 60; attempt++) {
     const cx = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
     const cz = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
     const sh = terrainHeight(cx, cz);
@@ -1503,9 +1594,8 @@ function spawnCaveMobs() {
       if (world[idx(cx, cy + 1, cz)] !== 0) continue;
       const below = world[idx(cx, cy - 1, cz)];
       if (below === 0 || below === 9 || below === 10) continue;
-      if (Math.random() < 0.5) entities.push(new Creeper(cx + 0.5, cy, cz + 0.5));
-      else entities.push(new Zombie(cx + 0.5, cy, cz + 0.5, cx, cz));
-      count++;
+      entities.push(new Zombie(cx + 0.5, cy, cz + 0.5, cx, cz));
+      zc++;
       break;
     }
   }
@@ -1638,6 +1728,10 @@ if (!isTouch) {
       case 'Digit6': selectBlock(5); break;
       case 'Digit7': selectBlock(8); break;
       case 'Digit8': selectBlock(11); break;
+      case 'Digit9': selectBlock(12); break;
+      case 'Digit0': selectBlock(13); break;
+      case 'KeyQ':   selectBlock(9);  break;
+      case 'KeyE':   selectBlock(10); break;
     }
   });
   addEventListener('keyup', e => {
@@ -1826,6 +1920,16 @@ function tryPlace() {
   if (y < 0 || y >= WORLD_HEIGHT) return;
   if (getBlock(x, y, z) !== 0) return;
   if (intersectsPlayer(x, y, z)) return;
+  if (selectedBlock === 13) {
+    // ドアは2ブロック分必要
+    if (y + 1 >= WORLD_HEIGHT) return;
+    if (getBlock(x, y + 1, z) !== 0) return;
+    if (intersectsPlayer(x, y + 1, z)) return;
+    setBlock(x, y, z, 13);
+    setBlock(x, y + 1, z, 13);
+    registerDoor(x, y, z);
+    return;
+  }
   setBlock(x, y, z, selectedBlock);
 }
 
@@ -1947,6 +2051,30 @@ function updateEntities(dt) {
   }
 }
 
+// 村人が近くにいるとドアが自動開閉
+function updateDoors() {
+  const now = performance.now();
+  const px = player.position.x, pz = player.position.z;
+  for (const d of doors) {
+    // プレイヤーから遠い (アンロード済みの可能性) ならスキップ
+    const dpx = d.x + 0.5 - px;
+    const dpz = d.z + 0.5 - pz;
+    if (dpx*dpx + dpz*dpz > 100*100) continue;
+    let near = false;
+    for (const e of entities) {
+      if (!(e instanceof Villager) || e.dead) continue;
+      const vx = e.group.position.x - (d.x + 0.5);
+      const vy = e.group.position.y - (d.y + 0.5);
+      const vz = e.group.position.z - (d.z + 0.5);
+      if (Math.abs(vy) > 3) continue;
+      if (vx*vx + vz*vz < 2*2) { near = true; d.lastNear = now; break; }
+    }
+    const cur = getBlock(d.x, d.y, d.z);
+    if (near && cur === 13) toggleDoor(d.x, d.y, d.z);
+    else if (!near && cur === 14 && now - d.lastNear > 1500) toggleDoor(d.x, d.y, d.z);
+  }
+}
+
 // --- 起動 ---
 let worldReady = false;
 
@@ -2019,6 +2147,7 @@ function animate() {
     if (pointerLocked) {
       updatePlayer(dt);
       updateEntities(dt);
+      updateDoors();
       updateExplosionVisuals(dt);
       updateChunkStreaming();
       updateCoords();
