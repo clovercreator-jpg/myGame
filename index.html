@@ -228,7 +228,7 @@
 <script type="module">
 import * as THREE from 'three';
 
-const WORLD_SIZE = 768;
+const WORLD_SIZE = 4096;
 const Y_OFFSET = 100;             // 表示Y = 配列Y - Y_OFFSET (岩盤=配列0=表示-100)
 const WORLD_HEIGHT = 200;         // 配列Y 0..199 → 表示Y -100..99
 const CHUNK_SIZE = 16;
@@ -634,136 +634,158 @@ const BLOCK_TYPES = {
   13: { material: doorMaterial,    icon: 'door' },
 };
 
-// --- World data ---
-const world = new Uint8Array(WORLD_SIZE * WORLD_HEIGHT * WORLD_SIZE);
-const idx = (x, y, z) => (y * WORLD_SIZE + z) * WORLD_SIZE + x;
+// --- World data (4096x4096 = 巨大なのでチャンク単位で遅延生成) ---
+// 各セルは getBlock で問い合わせると次の順で解決される:
+//   1) ロード済みチャンクのデータ配列 (高速)
+//   2) modifications Map (プレイヤー/構造物による変更)
+//   3) generateBlock(x,y,z) (ノイズから on the fly 計算)
+const modifications = new Map();
+const posKey = (x, y, z) => (x * WORLD_HEIGHT + y) * WORLD_SIZE + z;
+const idx = (x, y, z) => (y * WORLD_SIZE + z) * WORLD_SIZE + x; // 互換用 (使われない)
+
 function getBlock(x, y, z) {
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return 0;
   if (y < 0 || y >= WORLD_HEIGHT) return 0;
-  return world[idx(x, y, z)];
+  const cx = (x / CHUNK_SIZE) | 0;
+  const cy = (y / CHUNK_HEIGHT) | 0;
+  const cz = (z / CHUNK_SIZE) | 0;
+  const ch = chunks.get(chunkKey(cx, cy, cz));
+  if (ch && ch.data) {
+    const lx = x - cx * CHUNK_SIZE;
+    const ly = y - cy * CHUNK_HEIGHT;
+    const lz = z - cz * CHUNK_SIZE;
+    return ch.data[(ly * CHUNK_SIZE + lz) * CHUNK_SIZE + lx];
+  }
+  const key = posKey(x, y, z);
+  if (modifications.has(key)) return modifications.get(key);
+  return generateBlock(x, y, z);
 }
-function setWorld(x, y, z, v) { world[idx(x, y, z)] = v; }
+
+function setWorld(x, y, z, v) {
+  // 直書き: modifications に保存 + ロード済みチャンクなら data も更新
+  modifications.set(posKey(x, y, z), v);
+  const cx = (x / CHUNK_SIZE) | 0;
+  const cy = (y / CHUNK_HEIGHT) | 0;
+  const cz = (z / CHUNK_SIZE) | 0;
+  const ch = chunks.get(chunkKey(cx, cy, cz));
+  if (ch && ch.data) {
+    const lx = x - cx * CHUNK_SIZE;
+    const ly = y - cy * CHUNK_HEIGHT;
+    const lz = z - cz * CHUNK_SIZE;
+    ch.data[(ly * CHUNK_SIZE + lz) * CHUNK_SIZE + lx] = v;
+  }
+}
+
 function isAir(x, y, z) {
   if (y < 0) return false;
   if (y >= WORLD_HEIGHT) return true;
   if (x < 0 || x >= WORLD_SIZE) return false;
   if (z < 0 || z >= WORLD_SIZE) return false;
-  const t = world[idx(x, y, z)];
-  return t === 0 || t === 14; // 開いたドアもオクルージョン上は空気
+  const t = getBlock(x, y, z);
+  return t === 0 || t === 14;
 }
-// 衝突判定用: ワールドの外も「実体」扱い (透明壁の役目)。水・溶岩・開いたドアは通り抜け可能
 function isSolidForCollision(x, y, z) {
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return true;
   if (y < 0) return true;
   if (y >= WORLD_HEIGHT) return false;
-  const t = world[idx(x, y, z)];
+  const t = getBlock(x, y, z);
   return t !== 0 && t !== 9 && t !== 10 && t !== 14;
 }
 
-// --- 地形生成 (1 列分) ---
-function generateColumn(x, z) {
-  const h = terrainHeight(x, z);
+// --- ブロック生成 (ノイズから直接) ---
+// --- ノイズから1セルのブロック種別を計算 (手続的: 洞窟・溶岩・木も含む) ---
+const lavaHash = makeHash3D(45678);
+const treeHash = makeHash(123451);
+
+// 各 4x4 グリッドにつき最大 1 本の木中心
+function treeCenter(gx, gz) {
+  const h = treeHash(gx * 9 + 1, gz * 11 + 3);
+  if (h < 0.55) return null;
+  const ox = 1 + ((((treeHash(gx, gz) + 1) * 32) | 0) & 3);
+  const oz = 1 + ((((treeHash(gx + 17, gz - 5) + 1) * 32) | 0) & 3);
+  return { x: gx * 4 + ox, z: gz * 4 + oz };
+}
+function treeBlockAt(x, y, z, h) {
+  // 4x4 セルとその 1 つ隣に木中心がないか走査
+  const gx = (x >= 0 ? (x / 4) | 0 : ((x - 3) / 4) | 0);
+  const gz = (z >= 0 ? (z / 4) | 0 : ((z - 3) / 4) | 0);
+  for (let dgx = -1; dgx <= 1; dgx++) {
+    for (let dgz = -1; dgz <= 1; dgz++) {
+      const c = treeCenter(gx + dgx, gz + dgz);
+      if (!c) continue;
+      if (Math.abs(x - c.x) > 2 || Math.abs(z - c.z) > 2) continue;
+      if (!isForestAt(c.x, c.z)) continue;
+      const ch = terrainHeightRaw(c.x, c.z);
+      if (ch >= MOUNTAIN_Y || ch < WATER_LEVEL + 1) continue;
+      const trunkH = 4 + ((((treeHash(c.x * 3, c.z * 5) + 1) * 8) | 0) & 1);
+      const top = ch + trunkH;
+      // 幹
+      if (x === c.x && z === c.z && y > ch && y <= top) return 4;
+      // 葉 (5x5 下層 + 3x3 上層)
+      const dx = x - c.x, dz = z - c.z;
+      const mx = Math.abs(dx), mz = Math.abs(dz);
+      if (y > ch && y <= top + 1) {
+        if (y >= top - 1 && y <= top && mx <= 2 && mz <= 2) {
+          if (mx === 2 && mz === 2) {
+            const corner = treeHash(c.x + dx * 7, c.z + dz * 11);
+            if (corner > 0) return 5;
+          } else return 5;
+        }
+        if (y === top + 1 && mx <= 1 && mz <= 1) {
+          if (mx === 1 && mz === 1) {
+            const corner = treeHash(c.x + dx * 13, c.z + dz * 9);
+            if (corner > 0) return 5;
+          } else return 5;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+function generateBlock(x, y, z) {
+  if (y === 0) return 3; // bedrock
+  if (y < 0 || y >= WORLD_HEIGHT) return 0;
+  const h = terrainHeightRaw(x, z);
+  return generateBlockH(x, y, z, h);
+}
+function generateBlockH(x, y, z, h) {
+  if (y === 0) return 3;
+  // 木 (空中 or 地表上)
+  if (y > h && y <= h + 8) {
+    const t = treeBlockAt(x, y, z, h);
+    if (t) return t;
+  }
+  if (y > h) {
+    if (h < WATER_LEVEL && y <= WATER_LEVEL) return 9; // 湖の水
+    return 0;
+  }
+  // 洞窟
+  if (y >= 4 && y < h - 2 && isCave(x, y, z)) {
+    if (y >= 12 && y <= 120) {
+      const lh = lavaHash(x, y, z);
+      if (lh > 0.74) {
+        const yb = y - 1;
+        const belowCave = yb >= 4 && yb < h - 2 && isCave(x, yb, z);
+        if (yb >= 0 && yb <= h && !belowCave) return 10; // 溶岩
+      }
+    }
+    return 0;
+  }
+  // 固体
   const isMountain = h >= MOUNTAIN_Y;
   const isSnowy = h >= SNOW_Y;
   const isUnderwater = h < WATER_LEVEL;
-  setWorld(x, 0, z, 3); // 岩盤 (配列Y 0 = 表示Y -100)
-  for (let y = 1; y < h; y++) {
-    // 洞窟: 岩盤の少し上〜地表の少し下
-    if (y >= 4 && y < h - 2 && isCave(x, y, z)) continue;
-    const vein = smoothNoise3D(stoneHash, x * 0.22, y * 0.28, z * 0.22);
-    if (y <= Y_OFFSET) {
-      setWorld(x, y, z, vein > 0.18 ? 16 : 15); // 深層岩 / 深層岩の丸石
-    } else if (!isMountain && y >= h - 3) {
-      setWorld(x, y, z, 6); // dirt
-    } else {
-      setWorld(x, y, z, vein > 0.18 ? 2 : 7); // cobble / stone
-    }
+  if (y === h) {
+    if (isSnowy) return 8;
+    if (isMountain) return 2;
+    if (isUnderwater) return 6;
+    return 1;
   }
-  let top;
-  if (isSnowy) top = 8;
-  else if (isMountain) top = 2;
-  else if (isUnderwater) top = 6;
-  else top = 1;
-  setWorld(x, h, z, top);
-  if (isUnderwater) {
-    for (let y = h + 1; y <= WATER_LEVEL; y++) setWorld(x, y, z, 9);
-  }
-}
-
-// 洞窟の床に溶岩を撒く (表示Y -88 〜 20 = 配列Y 12 〜 120)
-function placeLava() {
-  for (let x = 1; x < WORLD_SIZE - 1; x++) {
-    for (let z = 1; z < WORLD_SIZE - 1; z++) {
-      for (let y = 12; y <= 120; y++) {
-        if (world[idx(x, y, z)] !== 0) continue;       // 洞窟内 (空気)
-        const below = world[idx(x, y - 1, z)];
-        if (below === 0 || below === 9 || below === 10) continue; // 固体床が必要
-        if (Math.random() < 0.14) setWorld(x, y, z, 10);
-      }
-    }
-  }
-}
-
-// --- 木 (森バイオームのみ) ---
-function placeTree(tx, baseY, tz) {
-  const trunkH = 4 + ((Math.random() * 2) | 0);
-  for (let i = 0; i < trunkH; i++) {
-    const y = baseY + i;
-    if (y >= WORLD_HEIGHT) break;
-    setWorld(tx, y, tz, 4);
-  }
-  const topY = baseY + trunkH;
-  for (let dy = -2; dy <= -1; dy++)
-    for (let dx = -2; dx <= 2; dx++)
-      for (let dz = -2; dz <= 2; dz++) {
-        const corner = Math.abs(dx) === 2 && Math.abs(dz) === 2;
-        if (corner && Math.random() < 0.6) continue;
-        const lx = tx + dx, ly = topY + dy, lz = tz + dz;
-        if (lx < 1 || lx >= WORLD_SIZE - 1 || lz < 1 || lz >= WORLD_SIZE - 1) continue;
-        if (ly < 0 || ly >= WORLD_HEIGHT) continue;
-        if (getBlock(lx, ly, lz) === 0) setWorld(lx, ly, lz, 5);
-      }
-  for (let dy = 0; dy <= 1; dy++)
-    for (let dx = -1; dx <= 1; dx++)
-      for (let dz = -1; dz <= 1; dz++) {
-        const corner = Math.abs(dx) === 1 && Math.abs(dz) === 1;
-        if (corner && dy === 1 && Math.random() < 0.7) continue;
-        const lx = tx + dx, ly = topY + dy, lz = tz + dz;
-        if (lx < 1 || lx >= WORLD_SIZE - 1 || lz < 1 || lz >= WORLD_SIZE - 1) continue;
-        if (ly < 0 || ly >= WORLD_HEIGHT) continue;
-        if (getBlock(lx, ly, lz) === 0) setWorld(lx, ly, lz, 5);
-      }
-}
-
-function placeTrees() {
-  const TREE_CELL = 4;
-  const gridW = Math.ceil(WORLD_SIZE / TREE_CELL);
-  const treeGrid = new Uint8Array(gridW * gridW);
-  const TARGET_TREES = 4000;
-  let placed = 0;
-  for (let attempt = 0; attempt < 60000 && placed < TARGET_TREES; attempt++) {
-    const tx = 4 + ((Math.random() * (WORLD_SIZE - 8)) | 0);
-    const tz = 4 + ((Math.random() * (WORLD_SIZE - 8)) | 0);
-    if (!isForestAt(tx, tz)) continue;
-    const h = terrainHeight(tx, tz);
-    if (h >= MOUNTAIN_Y) continue;
-    if (h <= WATER_LEVEL) continue;                       // 湖や湖岸を避ける
-    if (getBlock(tx, h, tz) !== 1) continue;              // 草地のみ (洞窟天井に注意)
-    if (Math.abs(tx - SPAWN_X) < 6 && Math.abs(tz - SPAWN_Z) < 6) continue;
-    const cx = (tx / TREE_CELL) | 0, cz = (tz / TREE_CELL) | 0;
-    let tooClose = false;
-    for (let dz = -1; dz <= 1 && !tooClose; dz++)
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = cx + dx, nz = cz + dz;
-        if (nx >= 0 && nx < gridW && nz >= 0 && nz < gridW && treeGrid[nz * gridW + nx]) {
-          tooClose = true; break;
-        }
-      }
-    if (tooClose) continue;
-    treeGrid[cz * gridW + cx] = 1;
-    placeTree(tx, h + 1, tz);
-    placed++;
-  }
+  const vein = smoothNoise3D(stoneHash, x * 0.22, y * 0.28, z * 0.22);
+  if (y <= Y_OFFSET) return vein > 0.18 ? 16 : 15;
+  if (!isMountain && y >= h - 3) return 6;
+  return vein > 0.18 ? 2 : 7;
 }
 
 let SPAWN_X = WORLD_SIZE / 2;
@@ -798,21 +820,48 @@ class Chunk {
     this.cx = cx; this.cy = cy; this.cz = cz;
     this.meshes = {};
     this.built = false;
+    this.data = null;
+  }
+  ensureData() {
+    if (this.data) return;
+    const data = new Uint8Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+    const minX = this.cx * CHUNK_SIZE;
+    const minY = this.cy * CHUNK_HEIGHT;
+    const minZ = this.cz * CHUNK_SIZE;
+    // 列ごとに高さをキャッシュ (16x16 = 256 通)
+    const heights = new Int16Array(CHUNK_SIZE * CHUNK_SIZE);
+    for (let lx = 0; lx < CHUNK_SIZE; lx++)
+      for (let lz = 0; lz < CHUNK_SIZE; lz++)
+        heights[lx * CHUNK_SIZE + lz] = terrainHeightRaw(minX + lx, minZ + lz);
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const h = heights[lx * CHUNK_SIZE + lz];
+        for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
+          const x = minX + lx, y = minY + ly, z = minZ + lz;
+          const key = posKey(x, y, z);
+          const t = modifications.has(key) ? modifications.get(key) : generateBlockH(x, y, z, h);
+          data[(ly * CHUNK_SIZE + lz) * CHUNK_SIZE + lx] = t;
+        }
+      }
+    }
+    this.data = data;
   }
   build() {
     this.dispose();
+    this.ensureData();
     const buckets = {};
     const minX = this.cx * CHUNK_SIZE;
     const minY = this.cy * CHUNK_HEIGHT;
     const minZ = this.cz * CHUNK_SIZE;
+    const data = this.data;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const x = minX + lx;
         const z = minZ + lz;
         for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
           const y = minY + ly;
-          const t = world[idx(x, y, z)];
-          if (t === 0 || t === 14) continue; // 開いたドアは描画しない
+          const t = data[(ly * CHUNK_SIZE + lz) * CHUNK_SIZE + lx];
+          if (t === 0 || t === 14) continue;
           if (isAir(x+1,y,z) || isAir(x-1,y,z) || isAir(x,y+1,z) ||
               isAir(x,y-1,z) || isAir(x,y,z+1) || isAir(x,y,z-1)) {
             (buckets[t] = buckets[t] || []).push(x, y, z);
@@ -902,8 +951,8 @@ function markChunkDirty(x, y, z) {
 function setBlock(x, y, z, type) {
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return;
   if (y < 0 || y >= WORLD_HEIGHT) return;
-  if (world[idx(x, y, z)] === type) return;
-  world[idx(x, y, z)] = type;
+  if (getBlock(x, y, z) === type) return;
+  setWorld(x, y, z, type);
   markChunkDirty(x, y, z);
   // 境界では隣接チャンクも更新
   const lx = x % CHUNK_SIZE, ly = y % CHUNK_HEIGHT, lz = z % CHUNK_SIZE;
@@ -1018,70 +1067,22 @@ const player = new THREE.Object3D();
 let spawnFeetY = terrainHeight(SPAWN_X, SPAWN_Z) + 1;
 player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
 
-// 自然な形の洞窟入り口
-function carveNaturalEntrance(cx, cz, sh, caveY) {
-  const baseRadius = 1.9 + Math.random() * 1.1; // 1.9..3.0
-  for (let y = sh + 1; y >= caveY - 1; y--) {
-    // 縦方向に蛇行
-    const wobbleX = smoothNoise3D(entranceHash, cx * 0.3, y * 0.35, cz * 0.3) * 2.2;
-    const wobbleZ = smoothNoise3D(entranceHash, cx * 0.3 + 313, y * 0.35, cz * 0.3 + 313) * 2.2;
-    const centerX = cx + 0.5 + wobbleX;
-    const centerZ = cz + 0.5 + wobbleZ;
-    for (let dx = -5; dx <= 5; dx++) {
-      for (let dz = -5; dz <= 5; dz++) {
-        const tx = cx + dx, tz = cz + dz;
-        if (tx < 1 || tx >= WORLD_SIZE - 1 || tz < 1 || tz >= WORLD_SIZE - 1) continue;
-        if (y < 0 || y >= WORLD_HEIGHT) continue;
-        const distX = (tx + 0.5) - centerX;
-        const distZ = (tz + 0.5) - centerZ;
-        const dist = Math.hypot(distX, distZ);
-        // 縁を不規則に
-        const edge = smoothNoise3D(entranceHash, tx * 0.55 + 700, y * 0.4, tz * 0.55 + 700);
-        const radius = baseRadius + edge * 1.0;
-        if (dist > radius) continue;
-        const t = world[idx(tx, y, tz)];
-        if (t === 9) continue; // 水は残す
-        setWorld(tx, y, tz, 0);
-      }
-    }
-  }
-}
-
-function placeCaveEntrances() {
-  const TARGET = 180;
-  let placed = 0;
-  for (let attempt = 0; attempt < TARGET * 18 && placed < TARGET; attempt++) {
-    const x = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
-    const z = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
-    if (Math.abs(x - SPAWN_X) < 16 && Math.abs(z - SPAWN_Z) < 16) continue;
-    const sh = terrainHeight(x, z);
-    if (sh <= WATER_LEVEL + 1) continue;
-    if (sh >= MOUNTAIN_Y + 5) continue;
-    // 直下に洞窟があるか
-    let caveY = -1;
-    for (let y = sh - 2; y >= 5; y--) {
-      if (world[idx(x, y, z)] === 0) { caveY = y; break; }
-    }
-    if (caveY < 0 || sh - caveY > 22) continue;
-    carveNaturalEntrance(x, z, sh, caveY);
-    placed++;
-  }
-}
-
 function clearSpawnArea() {
-  let baseY = terrainHeight(SPAWN_X, SPAWN_Z);
+  let baseY = terrainHeightRaw(SPAWN_X, SPAWN_Z);
   if (baseY < WATER_LEVEL + 2) baseY = WATER_LEVEL + 2;
   for (let dx = -3; dx <= 3; dx++) {
     for (let dz = -3; dz <= 3; dz++) {
       const x = SPAWN_X + dx, z = SPAWN_Z + dz;
-      setWorld(x, 0, z, 3);
-      for (let y = 1; y <= baseY - 1; y++) {
-        const t = world[idx(x, y, z)];
-        if (t === 0 || t === 9 || t === 10) setWorld(x, y, z, y <= Y_OFFSET ? 15 : 2);
-      }
+      // 表面 (草) と直下を確実に固体に
       setWorld(x, baseY, z, 1);
-      for (let y = baseY + 1; y < WORLD_HEIGHT; y++) {
-        const t = world[idx(x, y, z)];
+      for (let y = baseY - 1; y >= Math.max(1, baseY - 4); y--) {
+        const t = getBlock(x, y, z);
+        if (t === 0 || t === 9 || t === 10) setWorld(x, y, z, y <= Y_OFFSET ? 15 : 7);
+      }
+      // 上のスペースを空ける
+      for (let y = baseY + 1; y <= baseY + 4; y++) {
+        const t = getBlock(x, y, z);
+        if (t !== 0 && t !== 9) setWorld(x, y, z, 0);
         if (t === 9) setWorld(x, y, z, 0);
       }
     }
@@ -1607,13 +1608,10 @@ function buildVillage(cx, cz, baseY) {
     for (let dz = -16; dz <= 18; dz++) {
       const tx = cx + dx, tz = cz + dz;
       if (tx < 2 || tx >= WORLD_SIZE - 2 || tz < 2 || tz >= WORLD_SIZE - 2) continue;
-      for (let y = baseY + 1; y < WORLD_HEIGHT; y++) {
-        const t = world[idx(tx, y, tz)];
+      // 地表より上の自然物 (木の葉など) を 8 段だけ撤去
+      for (let y = baseY + 1; y <= baseY + 8 && y < WORLD_HEIGHT; y++) {
+        const t = getBlock(tx, y, tz);
         if (t !== 0 && t !== 9) setWorld(tx, y, tz, 0);
-      }
-      for (let y = 1; y < baseY; y++) {
-        const t = world[idx(tx, y, tz)];
-        if (t === 0 || t === 9 || t === 10) setWorld(tx, y, tz, y <= Y_OFFSET ? 15 : 7);
       }
       setWorld(tx, baseY, tz, 1);
     }
@@ -1695,17 +1693,18 @@ function spawnVillageMobs() {
 // クリーパー: 配列Y 12〜120 (表示Y -88〜20) のみ
 // ゾンビ: 洞窟全域
 function spawnCaveMobs() {
-  // クリーパー
+  // クリーパー (スポーン付近の洞窟に集中)
   let cc = 0;
-  for (let attempt = 0; attempt < 14000 && cc < 40; attempt++) {
-    const cx = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
-    const cz = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
+  for (let attempt = 0; attempt < 6000 && cc < 30; attempt++) {
+    const cx = SPAWN_X + ((Math.random() * 600 - 300) | 0);
+    const cz = SPAWN_Z + ((Math.random() * 600 - 300) | 0);
+    if (cx < 10 || cx >= WORLD_SIZE - 10 || cz < 10 || cz >= WORLD_SIZE - 10) continue;
     if (Math.abs(cx - SPAWN_X) < 28 && Math.abs(cz - SPAWN_Z) < 28) continue;
     for (let tries = 0; tries < 6; tries++) {
       const cy = 12 + ((Math.random() * 108) | 0); // 12..119
-      if (world[idx(cx, cy, cz)] !== 0) continue;
-      if (world[idx(cx, cy + 1, cz)] !== 0) continue;
-      const below = world[idx(cx, cy - 1, cz)];
+      if (getBlock(cx, cy, cz) !== 0) continue;
+      if (getBlock(cx, cy + 1, cz) !== 0) continue;
+      const below = getBlock(cx, cy - 1, cz);
       if (below === 0 || below === 9 || below === 10) continue;
       entities.push(new Creeper(cx + 0.5, cy, cz + 0.5));
       cc++;
@@ -1714,17 +1713,18 @@ function spawnCaveMobs() {
   }
   // ゾンビ
   let zc = 0;
-  for (let attempt = 0; attempt < 16000 && zc < 60; attempt++) {
-    const cx = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
-    const cz = 10 + ((Math.random() * (WORLD_SIZE - 20)) | 0);
-    const sh = terrainHeight(cx, cz);
+  for (let attempt = 0; attempt < 8000 && zc < 40; attempt++) {
+    const cx = SPAWN_X + ((Math.random() * 600 - 300) | 0);
+    const cz = SPAWN_Z + ((Math.random() * 600 - 300) | 0);
+    if (cx < 10 || cx >= WORLD_SIZE - 10 || cz < 10 || cz >= WORLD_SIZE - 10) continue;
+    const sh = terrainHeightRaw(cx, cz);
     if (Math.abs(cx - SPAWN_X) < 28 && Math.abs(cz - SPAWN_Z) < 28) continue;
     for (let tries = 0; tries < 6; tries++) {
       const cy = 5 + ((Math.random() * Math.max(1, sh - 8)) | 0);
       if (cy < 5 || cy >= sh - 2) continue;
-      if (world[idx(cx, cy, cz)] !== 0) continue;
-      if (world[idx(cx, cy + 1, cz)] !== 0) continue;
-      const below = world[idx(cx, cy - 1, cz)];
+      if (getBlock(cx, cy, cz) !== 0) continue;
+      if (getBlock(cx, cy + 1, cz) !== 0) continue;
+      const below = getBlock(cx, cy - 1, cz);
       if (below === 0 || below === 9 || below === 10) continue;
       entities.push(new Zombie(cx + 0.5, cy, cz + 0.5, cx, cz));
       zc++;
@@ -1734,24 +1734,22 @@ function spawnCaveMobs() {
 }
 
 function spawnEntities() {
-  // 豚 (森限定)
+  // 豚 (スポーン周辺の森に限定)
   let pigCount = 0;
-  for (let attempt = 0; attempt < 2500 && pigCount < 40; attempt++) {
-    const x = 4 + Math.random() * (WORLD_SIZE - 8);
-    const z = 4 + Math.random() * (WORLD_SIZE - 8);
+  for (let attempt = 0; attempt < 1500 && pigCount < 25; attempt++) {
+    const x = SPAWN_X + (Math.random() * 600 - 300);
+    const z = SPAWN_Z + (Math.random() * 600 - 300);
+    if (x < 4 || x >= WORLD_SIZE - 4 || z < 4 || z >= WORLD_SIZE - 4) continue;
     if (!isForestAt(x, z)) continue;
     const ix = x | 0, iz = z | 0;
-    const h = terrainHeight(ix, iz);
+    const h = terrainHeightRaw(ix, iz);
     if (h >= MOUNTAIN_Y) continue;
     if (h <= WATER_LEVEL) continue;
-    if (getBlock(ix, h, iz) !== 1) continue;
     if (Math.abs(x - SPAWN_X) < 20 && Math.abs(z - SPAWN_Z) < 20) continue;
     entities.push(new Pig(x, h + 1, z));
     pigCount++;
   }
-  // クリーパー・ゾンビ (洞窟内)
   spawnCaveMobs();
-  // クリーパー・ゾンビ (村の周り)
   spawnVillageMobs();
 }
 
@@ -2475,42 +2473,18 @@ function startWorldGen() {
   loadingText.textContent = 'ワールド生成中...';
   setTimeout(() => {
     chooseSpawn();
-    precomputeHeights();
-    progressBar.style.width = '8%';
-    // 地形をバッチ生成 (UI を固めない)
-    let gx = 0;
-    function genStep() {
-      const end = Math.min(WORLD_SIZE, gx + 12);
-      for (; gx < end; gx++)
-        for (let z = 0; z < WORLD_SIZE; z++)
-          generateColumn(gx, z);
-      progressBar.style.width = (8 + (gx / WORLD_SIZE) * 38) + '%';
-      if (gx < WORLD_SIZE) { setTimeout(genStep, 0); return; }
-      afterTerrain();
-    }
-    genStep();
-  }, 30);
-}
-
-function afterTerrain() {
-  setTimeout(() => {
-    placeLava();
-    placeCaveEntrances();
-    placeVillages();
-    clearSpawnArea();
-    progressBar.style.width = '55%';
+    progressBar.style.width = '20%';
     setTimeout(() => {
-      placeTrees();
-      progressBar.style.width = '68%';
+      placeVillages();
+      clearSpawnArea();
+      progressBar.style.width = '50%';
       setTimeout(() => {
         spawnEntities();
-        progressBar.style.width = '78%';
+        progressBar.style.width = '70%';
         setTimeout(() => {
-          // 初期チャンクをキューに入れる
           updateChunkStreaming();
-          progressBar.style.width = '86%';
+          progressBar.style.width = '85%';
           setTimeout(() => {
-            // 最初の数フレームでチャンクを集中的にロード
             const initStart = performance.now();
             while (loadQueue.length > 0 && performance.now() - initStart < 2000) {
               processLoadQueue(50);
