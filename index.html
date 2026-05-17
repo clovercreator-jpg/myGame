@@ -169,6 +169,11 @@
       <option value="show" selected>表示</option>
       <option value="hide">非表示</option>
     </select>
+    <label>十字カーソル:</label>
+    <select id="crosshairSelect">
+      <option value="show" selected>表示</option>
+      <option value="hide">非表示</option>
+    </select>
     <button class="back-settings">戻る</button>
     <button class="close-settings">閉じる</button>
   </div>
@@ -2298,6 +2303,10 @@ function bgmPlayNote(freq, dur, vol, when, tone) {
   osc.stop(when + dur + 0.1);
 }
 
+let bgmEndAudioTime = 0;   // 現在の曲が鳴り終わる AudioContext 時刻
+let bgmRequested = false;  // ワールド生成完了 + 15秒経過で true
+let worldReadyAt = 0;
+
 function scheduleTrack(track) {
   if (!audioCtx) return 0;
   const start = audioCtx.currentTime + 0.15;
@@ -2315,42 +2324,59 @@ function scheduleTrack(track) {
     }
     cursor += dur;
   }
-  const total = cursor - start;
+  const melodyEnd = cursor;
+  let bassEnd = start;
   if (track.bass) {
     let bt = start;
     let bi = 0;
+    const total = melodyEnd - start;
     while (bt < start + total - track.bass.dur * 0.5) {
       const bf = NOTE[track.bass.notes[bi % track.bass.notes.length]] || 0;
       if (bf > 0) bgmPlayNote(bf, track.bass.dur, track.bass.vol || 0.15, bt, 'triangle');
+      bassEnd = bt + track.bass.dur;
       bt += track.bass.dur;
       bi++;
     }
   }
-  return total;
+  return Math.max(melodyEnd, bassEnd) - start;
 }
 
 function playNextBGM() {
   if (!bgmPlaying || !audioCtx) return;
+  // 前の曲がまだ鳴っている間は絶対に重ねない
+  if (audioCtx.currentTime < bgmEndAudioTime) {
+    const wait = (bgmEndAudioTime - audioCtx.currentTime + 0.2) * 1000;
+    if (bgmTimer) clearTimeout(bgmTimer);
+    bgmTimer = setTimeout(playNextBGM, wait);
+    return;
+  }
   let next;
   do { next = (Math.random() * BGM_TRACKS.length) | 0; }
   while (BGM_TRACKS.length > 1 && next === lastTrackId);
   lastTrackId = next;
   const duration = scheduleTrack(BGM_TRACKS[next]);
+  bgmEndAudioTime = audioCtx.currentTime + duration + 0.3; // 余裕を持たせる
   const gap = 12 + Math.random() * 18; // 12〜30 秒の静寂
   if (bgmTimer) clearTimeout(bgmTimer);
   bgmTimer = setTimeout(playNextBGM, (duration + gap) * 1000);
 }
 
-function startBGM() {
+function tryStartBGM() {
   initAudio();
   if (!audioCtx) return;
   if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (!bgmRequested) return;       // 15 秒経過まで開始しない
   if (bgmPlaying) return;
   bgmPlaying = true;
-  // 最初は少し間を置いてから
+  // ワールドロード完了から 15 秒以上経っているか確認
+  const elapsed = performance.now() - worldReadyAt;
+  const delay = Math.max(0, 15000 - elapsed);
   if (bgmTimer) clearTimeout(bgmTimer);
-  bgmTimer = setTimeout(playNextBGM, 1500);
+  bgmTimer = setTimeout(playNextBGM, delay);
 }
+
+// 互換性のための旧名
+const startBGM = tryStartBGM;
 
 let bgmVolume = 0.30;  // 設定UIで調整
 function applyBgmVolume() {
@@ -2425,6 +2451,11 @@ fogSelect.addEventListener('change', e => {
 });
 const cloudSelect = document.getElementById('cloudSelect');
 cloudSelect.addEventListener('change', e => { cloudsVisible = e.target.value === 'show'; });
+const crosshairSelect = document.getElementById('crosshairSelect');
+const crosshairEl = document.getElementById('crosshair');
+crosshairSelect.addEventListener('change', e => {
+  crosshairEl.style.display = e.target.value === 'show' ? 'block' : 'none';
+});
 
 // --- 起動 ---
 let worldReady = false;
@@ -2475,6 +2506,9 @@ function afterTerrain() {
             }
             progressBar.style.width = '100%';
             worldReady = true;
+            worldReadyAt = performance.now();
+            // 15 秒後に BGM をリクエスト
+            setTimeout(() => { bgmRequested = true; tryStartBGM(); }, 15000);
             if (isTouch) {
               blocker.style.display = 'none';
               touchUI.classList.add('active');
