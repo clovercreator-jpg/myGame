@@ -28,6 +28,21 @@
     transform: translate(-50%, -50%);
     pointer-events: none; z-index: 10;
   }
+  #hearts {
+    position: absolute;
+    bottom: 100px; left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    gap: 2px;
+    z-index: 6;
+    font-size: 20px;
+    line-height: 1;
+    pointer-events: none;
+    text-shadow: 1px 1px 0 black, -1px -1px 0 black, 1px -1px 0 black, -1px 1px 0 black;
+  }
+  #hearts.show { display: flex; }
+  .heart { color: #e63946; }
+  .heart.empty { color: #421014; }
   #crosshair .ch-h, #crosshair .ch-v {
     position: absolute; background: #fff;
     box-shadow: 0 0 2px #000, 0 0 2px #000;
@@ -151,12 +166,25 @@
 <div id="coords">XYZ: -- / -- / --</div>
 <div id="info">WASD: 移動 / Space: ジャンプ / 左クリック: 壊す / 右クリック: 置く / 1-8: 選択 / N: 設定</div>
 <div id="crosshair"><div class="ch-h"></div><div class="ch-v"></div></div>
+<div id="hearts"></div>
 <button id="settingsBtn" title="設定 (N)">⚙</button>
 <div id="settingsModal" style="display:none">
   <div class="modal-page" id="settingsMain">
     <h2>設定</h2>
     <button id="openAudio">オーディオ設定</button>
     <button id="openVideo">ビデオ設定</button>
+    <button id="openMode">モード</button>
+    <button class="close-settings">閉じる</button>
+  </div>
+  <div class="modal-page" id="settingsMode" style="display:none">
+    <h2>モード</h2>
+    <label>ゲームモード:</label>
+    <select id="modeSelect">
+      <option value="survival" selected>サバイバル</option>
+      <option value="creative">クリエイティブ</option>
+      <option value="adventure">アドベンチャー</option>
+    </select>
+    <button class="back-settings">戻る</button>
     <button class="close-settings">閉じる</button>
   </div>
   <div class="modal-page" id="settingsAudio" style="display:none">
@@ -1296,13 +1324,12 @@ class Creeper extends Entity {
     const dz = player.position.z - pos.z;
     const dist = Math.hypot(dx, dz);
 
-    if (dist < 1.6 && Math.abs(dy) < 2.2) {
-      // 起爆: 接触
+    if (gameMode !== 'creative' && dist < 1.6 && Math.abs(dy) < 2.2) {
       this.detonate();
       return;
     }
 
-    if (dist < 16) {
+    if (gameMode !== 'creative' && dist < 16) {
       // プレイヤーを追う
       this.dir = Math.atan2(dx, dz);
       const speed = 2.0;
@@ -1527,8 +1554,40 @@ class Zombie extends Entity {
       const d = Math.hypot(dx, dz);
       if (d < td) { target = e; td = d; }
     }
+    // クリエイティブ以外ならプレイヤーも狙う
+    let targetIsPlayer = false;
+    if (gameMode !== 'creative') {
+      const pdx = player.position.x - this.group.position.x;
+      const pdz = player.position.z - this.group.position.z;
+      const pdy = (player.position.y - EYE_HEIGHT) - this.group.position.y;
+      const pdd = Math.hypot(pdx, pdz);
+      if (pdd < td && Math.abs(pdy) < 3) {
+        td = pdd;
+        target = null;
+        targetIsPlayer = true;
+      }
+    }
     this.attackCooldown -= dt;
-    if (target) {
+    if (targetIsPlayer) {
+      const dx = player.position.x - this.group.position.x;
+      const dz = player.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      this.dir = Math.atan2(dx, dz);
+      this.velocity.x = Math.sin(this.dir) * 1.5;
+      this.velocity.z = Math.cos(this.dir) * 1.5;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 8);
+      if (d < 1.5 && this.attackCooldown <= 0) {
+        takeDamage(1);
+        this.attackCooldown = 0.7;
+      }
+      if (this.onGround) {
+        const fx = this.group.position.x + Math.sin(this.dir) * 0.5;
+        const fz = this.group.position.z + Math.cos(this.dir) * 0.5;
+        if (this.collidesAt(fx, this.group.position.y, fz) &&
+            !this.collidesAt(fx, this.group.position.y + 1, fz)) this.velocity.y = 7;
+      }
+    } else if (target) {
       const dx = target.group.position.x - this.group.position.x;
       const dz = target.group.position.z - this.group.position.z;
       const d = Math.hypot(dx, dz);
@@ -1777,14 +1836,11 @@ function explode(x, y, z) {
   const dz2 = player.position.z - z;
   const pd = Math.hypot(dx2, dy2, dz2);
   if (pd < R + 2) {
-    // ノックバック + リスポーン
-    damageOverlayEl.style.opacity = '0.6';
-    setTimeout(() => damageOverlayEl.style.opacity = '0', 30);
-    if (pd < R) {
-      player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
-      velocity.set(0, 0, 0);
-    } else {
-      const k = (R + 2 - pd) * 3;
+    const scale = 1 - pd / (R + 2);
+    const dmg = Math.max(1, Math.ceil(scale * 8));
+    takeDamage(dmg);
+    if (pd > 0.1 && gameMode !== 'creative') {
+      const k = (R + 2 - pd) * 2.5;
       velocity.x = (dx2 / pd) * k;
       velocity.z = (dz2 / pd) * k;
       velocity.y = Math.max(velocity.y, 6);
@@ -1849,7 +1905,10 @@ if (!isTouch) {
       case 'KeyS': case 'ArrowDown':  keys.back    = true; break;
       case 'KeyA': case 'ArrowLeft':  keys.left    = true; break;
       case 'KeyD': case 'ArrowRight': keys.right   = true; break;
-      case 'Space':                   keys.jump    = true; break;
+      case 'Space':
+        if (!keys.jump && !e.repeat) tryJumpTrigger();
+        keys.jump = true; break;
+      case 'ShiftLeft': case 'ShiftRight': keys.crouch = true; break;
       case 'Digit1': selectBlock(1); break;
       case 'Digit2': selectBlock(2); break;
       case 'Digit3': selectBlock(7); break;
@@ -1871,6 +1930,7 @@ if (!isTouch) {
       case 'KeyA': case 'ArrowLeft':  keys.left    = false; break;
       case 'KeyD': case 'ArrowRight': keys.right   = false; break;
       case 'Space':                   keys.jump    = false; break;
+      case 'ShiftLeft': case 'ShiftRight': keys.crouch = false; break;
     }
   });
 }
@@ -1908,6 +1968,7 @@ if (isTouch) {
     e.preventDefault();
     if (jumpTouchId !== null) return;
     jumpTouchId = e.changedTouches[0].identifier;
+    if (!keys.jump) tryJumpTrigger();
     keys.jump = true; jumpBtnEl.classList.add('pressed');
   }, { passive: false });
   breakBtnEl.addEventListener('touchstart', e => { e.preventDefault(); breakBtnEl.classList.add('pressed'); tryBreak(); }, { passive: false });
@@ -2051,6 +2112,7 @@ function tryBreak() {
     ent.entity.takeDamage(1);
     return;
   }
+  if (gameMode === 'adventure') return;  // 設置/破壊不可
   if (!block) return;
   const t = getBlock(block.x, block.y, block.z);
   if (t === 13 || t === 14) { destroyDoor(block.x, block.y, block.z); return; }
@@ -2058,6 +2120,7 @@ function tryBreak() {
   setBlock(block.x, block.y, block.z, 0);
 }
 function tryPlace() {
+  if (gameMode === 'adventure') return;  // 設置/破壊不可
   const tgt = raycastBlock();
   if (!tgt) return;
   const hit = getBlock(tgt.x, tgt.y, tgt.z);
@@ -2101,8 +2164,65 @@ function playerTouchesBlock(targetType) {
   return false;
 }
 
-const LAVA_DEATH_AT = 1.5;
-let lavaTimer = 0;
+// --- ゲームモード ---
+let gameMode = 'survival';      // 'survival' | 'creative' | 'adventure'
+let playerHP = 10;              // ハート 0〜10
+let damageFlashTimer = 0;
+let lavaTickTimer = 0;
+let isFlying = false;
+let lastJumpTime = 0;
+
+const heartsEl = document.getElementById('hearts');
+for (let i = 0; i < 10; i++) {
+  const h = document.createElement('span');
+  h.className = 'heart';
+  h.textContent = '♥';
+  heartsEl.appendChild(h);
+}
+function updateHearts() {
+  heartsEl.classList.toggle('show', gameMode !== 'creative');
+  const kids = heartsEl.children;
+  for (let i = 0; i < 10; i++) {
+    kids[i].classList.toggle('empty', i >= playerHP);
+  }
+}
+
+function respawnPlayer() {
+  player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
+  velocity.set(0, 0, 0);
+  playerHP = 10;
+  lavaTickTimer = 0;
+  isFlying = false;
+  damageFlashTimer = 0;
+  damageOverlayEl.style.opacity = '0';
+  updateHearts();
+}
+function takeDamage(amount) {
+  if (gameMode === 'creative') return;
+  playerHP -= amount;
+  if (playerHP < 0) playerHP = 0;
+  damageFlashTimer = 0.35;
+  damageOverlayEl.style.opacity = '0.55';
+  updateHearts();
+  if (playerHP <= 0) respawnPlayer();
+}
+function setGameMode(m) {
+  gameMode = m;
+  playerHP = 10;
+  isFlying = false;
+  damageFlashTimer = 0;
+  lavaTickTimer = 0;
+  damageOverlayEl.style.opacity = '0';
+  updateHearts();
+}
+function tryJumpTrigger() {
+  const now = performance.now();
+  if (gameMode === 'creative' && now - lastJumpTime < 320) {
+    isFlying = !isFlying;
+    velocity.y = 0;
+  }
+  lastJumpTime = now;
+}
 
 function playerCollides(px, py, pz) {
   const minX = Math.floor(px - PLAYER_RADIUS), maxX = Math.floor(px + PLAYER_RADIUS);
@@ -2125,10 +2245,16 @@ function updateCoords() {
 }
 
 function updatePlayer(dt) {
-  // 横移動の摩擦 (ノックバック減衰)
   velocity.x *= Math.max(0, 1 - 5 * dt);
   velocity.z *= Math.max(0, 1 - 5 * dt);
-  velocity.y -= GRAVITY * dt;
+
+  if (isFlying) {
+    velocity.y = 0;
+    if (keys.jump) velocity.y = 7;
+    else if (keys.crouch) velocity.y = -7;
+  } else {
+    velocity.y -= GRAVITY * dt;
+  }
 
   moveDir.set(0, 0, 0);
   if (keys.forward) moveDir.z -= 1;
@@ -2141,10 +2267,11 @@ function updatePlayer(dt) {
 
   const yaw = player.rotation.y;
   const cos = Math.cos(yaw), sin = Math.sin(yaw);
-  const inputX = (moveDir.x * cos + moveDir.z * sin) * MOVE_SPEED;
-  const inputZ = (-moveDir.x * sin + moveDir.z * cos) * MOVE_SPEED;
+  const sp = isFlying ? MOVE_SPEED * 1.6 : MOVE_SPEED;
+  const inputX = (moveDir.x * cos + moveDir.z * sin) * sp;
+  const inputZ = (-moveDir.x * sin + moveDir.z * cos) * sp;
 
-  if (keys.jump && onGround) { velocity.y = JUMP_SPEED; onGround = false; }
+  if (!isFlying && keys.jump && onGround) { velocity.y = JUMP_SPEED; onGround = false; }
 
   const pos = player.position;
   const totalX = inputX + velocity.x;
@@ -2154,14 +2281,23 @@ function updatePlayer(dt) {
   if (!playerCollides(newX, pos.y, pos.z)) pos.x = newX; else velocity.x = 0;
   const newZ = pos.z + totalZ * dt;
   if (!playerCollides(pos.x, pos.y, newZ)) pos.z = newZ; else velocity.z = 0;
+  const fallSpeed = velocity.y; // 着地前の落下速度を保存
   const newY = pos.y + velocity.y * dt;
   if (!playerCollides(pos.x, newY, pos.z)) { pos.y = newY; onGround = false; }
-  else { if (velocity.y < 0) onGround = true; velocity.y = 0; }
-
-  if (pos.y < -20) {
-    pos.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
-    velocity.set(0, 0, 0);
+  else {
+    if (velocity.y < 0) {
+      onGround = true;
+      // 落下ダメージ
+      if (!isFlying && fallSpeed < -16) {
+        const dmg = Math.floor((-fallSpeed - 13) / 2);
+        if (dmg > 0) takeDamage(dmg);
+      }
+      isFlying = false; // 着地で飛行解除
+    }
+    velocity.y = 0;
   }
+
+  if (pos.y < -20) respawnPlayer();
 
   // ハイライト
   const tgt = raycastBlock();
@@ -2170,19 +2306,16 @@ function updatePlayer(dt) {
     highlightMesh.visible = true;
   } else highlightMesh.visible = false;
 
-  // 溶岩ダメージ
+  // 溶岩ダメージ (1 秒ごとに 2 ダメージ)
   if (playerTouchesBlock(10)) {
-    lavaTimer += dt;
-    damageOverlayEl.style.opacity = '0.55';
-    if (lavaTimer >= LAVA_DEATH_AT) {
-      pos.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
-      velocity.set(0, 0, 0);
-      lavaTimer = 0;
-      damageOverlayEl.style.opacity = '0';
-    }
-  } else if (lavaTimer > 0) {
-    lavaTimer = 0;
-    damageOverlayEl.style.opacity = '0';
+    lavaTickTimer += dt;
+    if (lavaTickTimer >= 1.0) { takeDamage(2); lavaTickTimer = 0; }
+  } else lavaTickTimer = 0;
+
+  // ダメージフラッシュのフェードアウト
+  if (damageFlashTimer > 0) {
+    damageFlashTimer -= dt;
+    if (damageFlashTimer <= 0) damageOverlayEl.style.opacity = '0';
   }
 }
 
@@ -2407,6 +2540,7 @@ const settingsPages = {
   main: document.getElementById('settingsMain'),
   audio: document.getElementById('settingsAudio'),
   video: document.getElementById('settingsVideo'),
+  mode:  document.getElementById('settingsMode'),
 };
 let settingsOpen = false;
 function showSettingsPage(name) {
@@ -2428,6 +2562,10 @@ settingsBtn.addEventListener('click', e => { e.stopPropagation(); openSettings()
 settingsBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); openSettings(); }, { passive: false });
 document.getElementById('openAudio').addEventListener('click', () => showSettingsPage('audio'));
 document.getElementById('openVideo').addEventListener('click', () => showSettingsPage('video'));
+document.getElementById('openMode').addEventListener('click', () => showSettingsPage('mode'));
+document.getElementById('modeSelect').addEventListener('change', e => setGameMode(e.target.value));
+// 初期表示反映
+updateHearts();
 document.querySelectorAll('.close-settings').forEach(b => b.addEventListener('click', closeSettings));
 document.querySelectorAll('.back-settings').forEach(b => b.addEventListener('click', () => showSettingsPage('main')));
 addEventListener('keydown', e => {
