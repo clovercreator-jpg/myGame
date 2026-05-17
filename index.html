@@ -1452,8 +1452,9 @@ class IronGolem extends Entity {
     nose.position.set(0, 2.45, 0.31);
     this.group.add(nose);
     const eyeGeo = new THREE.BoxGeometry(0.12, 0.08, 0.02);
-    const eL = new THREE.Mesh(eyeGeo, golemEyeMat); eL.position.set(-0.16, 2.65, 0.305); this.group.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, golemEyeMat); eR.position.set( 0.16, 2.65, 0.305); this.group.add(eR);
+    this.eyeMat = golemEyeMat.clone();
+    const eL = new THREE.Mesh(eyeGeo, this.eyeMat); eL.position.set(-0.16, 2.65, 0.305); this.group.add(eL);
+    const eR = new THREE.Mesh(eyeGeo, this.eyeMat); eR.position.set( 0.16, 2.65, 0.305); this.group.add(eR);
     const armGeo = new THREE.BoxGeometry(0.4, 1.7, 0.4);
     const armL = new THREE.Mesh(armGeo, golemBodyMat); armL.position.set(-0.75, 1.35, 0); this.group.add(armL);
     const armR = new THREE.Mesh(armGeo, golemBodyMat); armR.position.set( 0.75, 1.35, 0); this.group.add(armR);
@@ -1477,6 +1478,8 @@ class IronGolem extends Entity {
       this.angerTimer -= dt;
       if (this.angerTimer <= 0) this.angryAtPlayer = false;
     }
+    // 目の色: 怒り中は明るい赤、平常時は普通
+    this.eyeMat.color.setHex(this.angryAtPlayer ? 0xff1010 : 0xff5040);
     // 近くのクリーパー/ゾンビを探して攻撃
     let target = null, targetD = 16;
     for (const e of entities) {
