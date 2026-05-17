@@ -1462,9 +1462,22 @@ class IronGolem extends Entity {
     const legR = new THREE.Mesh(legGeo, golemBodyMat); legR.position.set( 0.28, 0.35, 0); this.group.add(legR);
     this.legs.push(legL, legR);
     this.homeX = x; this.homeZ = z;
+    this.angryAtPlayer = false;
+    this.angerTimer = 0;
+  }
+  takeDamage(amount) {
+    super.takeDamage(amount);
+    if (gameMode !== 'creative') {
+      this.angryAtPlayer = true;
+      this.angerTimer = 12; // 12 秒は追いかけ続ける
+    }
   }
   update(dt) {
-    // 近くのクリーパーを探して攻撃
+    if (this.angerTimer > 0) {
+      this.angerTimer -= dt;
+      if (this.angerTimer <= 0) this.angryAtPlayer = false;
+    }
+    // 近くのクリーパー/ゾンビを探して攻撃
     let target = null, targetD = 16;
     for (const e of entities) {
       if (e === this || e.dead) continue;
@@ -1475,8 +1488,37 @@ class IronGolem extends Entity {
       const d = Math.hypot(dx, dz);
       if (d < targetD) { target = e; targetD = d; }
     }
+    // プレイヤーに殴られたら反撃: プレイヤーを優先ターゲットに
+    let targetIsPlayer = false;
+    if (this.angryAtPlayer && gameMode !== 'creative') {
+      const pdx = player.position.x - this.group.position.x;
+      const pdz = player.position.z - this.group.position.z;
+      const pd = Math.hypot(pdx, pdz);
+      if (pd < 24) {
+        target = null;
+        targetIsPlayer = true;
+        targetD = pd;
+      }
+    }
     this.attackCooldown -= dt;
-    if (target) {
+    if (targetIsPlayer) {
+      const dx = player.position.x - this.group.position.x;
+      const dz = player.position.z - this.group.position.z;
+      const d = Math.hypot(dx, dz);
+      this.dir = Math.atan2(dx, dz);
+      this.velocity.x = Math.sin(this.dir) * 2.2;
+      this.velocity.z = Math.cos(this.dir) * 2.2;
+      this.group.rotation.y = this.dir;
+      this.animateLegs(dt * 7);
+      if (d < 1.9 && this.attackCooldown <= 0) {
+        takeDamage(3);
+        // ノックバック
+        velocity.x += Math.sin(this.dir) * 5;
+        velocity.z += Math.cos(this.dir) * 5;
+        velocity.y = Math.max(velocity.y, 4);
+        this.attackCooldown = 0.7;
+      }
+    } else if (target) {
       const dx = target.group.position.x - this.group.position.x;
       const dz = target.group.position.z - this.group.position.z;
       const d = Math.hypot(dx, dz);
