@@ -749,7 +749,10 @@ const ITEM_TYPES = { 100: { icon: 'flint' } };
 //   1) ロード済みチャンクのデータ配列 (高速)
 //   2) modifications Map (プレイヤー/構造物による変更)
 //   3) generateBlock(x,y,z) (ノイズから on the fly 計算)
-const modifications = new Map();
+const overworldMods = new Map();
+const netherMods = new Map();
+let modifications = overworldMods;
+let inNether = false;
 const posKey = (x, y, z) => (x * WORLD_HEIGHT + y) * WORLD_SIZE + z;
 const idx = (x, y, z) => (y * WORLD_SIZE + z) * WORLD_SIZE + x; // 互換用 (使われない)
 
@@ -853,13 +856,34 @@ function treeBlockAt(x, y, z, h) {
   return 0;
 }
 
+function generateBlockNether(x, y, z) {
+  if (y === 0) return 3;                       // 岩盤の床
+  if (y >= 60) return 0;                       // 上は空気 (天井なし)
+  // 洞窟ノイズで空洞を作る
+  if (y >= 3 && y < 58 && isCave(x, y, z)) {
+    // 低層は溶岩
+    if (y <= 15) {
+      const lh = lavaHash(x, y, z);
+      if (lh > 0.5) {
+        const yb = y - 1;
+        const belowCave = yb >= 3 && yb < 58 && isCave(x, yb, z);
+        if (!belowCave) return 10;
+      }
+    }
+    return 0;
+  }
+  return 20; // ネザーラック
+}
+
 function generateBlock(x, y, z) {
+  if (inNether) return generateBlockNether(x, y, z);
   if (y === 0) return 3; // bedrock
   if (y < 0 || y >= WORLD_HEIGHT) return 0;
   const h = terrainHeightRaw(x, z);
   return generateBlockH(x, y, z, h);
 }
 function generateBlockH(x, y, z, h) {
+  if (inNether) return generateBlockNether(x, y, z);
   if (y === 0) return 3;
   // 木 (空中 or 地表上)
   if (y > h && y <= h + 8) {
@@ -1339,64 +1363,71 @@ function checkPortalFrame(bx, by, bz, ax, az) {
   return true;
 }
 
-const NETHER_X = 3500, NETHER_Y = 150, NETHER_Z = 3500;
-let inNether = false;
+// ネザー: ワールド全域 (4096x4096) の手続的次元
+const NETHER_SPAWN_X = 2048;
+const NETHER_SPAWN_Z = 2048;
+const NETHER_SPAWN_Y = 25;
 let savedOverworldPos = null;
-let netherBuilt = false;
+let netherSpawnBuilt = false;
 let portalCooldown = 0;
-function buildNetherArea() {
-  if (netherBuilt) return;
-  netherBuilt = true;
-  // 14x14 のネザーラック床 + 周囲に溶岩湖
-  for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) {
-    const inFloor = Math.abs(dx) <= 7 && Math.abs(dz) <= 7;
-    setBlock(NETHER_X + dx, NETHER_Y, NETHER_Z + dz, inFloor ? 20 : 10);
-  }
-  // 周囲の壁 (落下防止のネザーラック)
-  for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) {
-    if (Math.abs(dx) === 10 || Math.abs(dz) === 10) {
-      for (let dy = 1; dy <= 6; dy++) setBlock(NETHER_X + dx, NETHER_Y + dy, NETHER_Z + dz, 20);
+
+// 世界切替: 現在のチャンクを破棄 + modifications を入れ替え
+function switchWorld(toNether) {
+  for (const [, chunk] of chunks) { if (chunk) chunk.dispose(); }
+  chunks.clear();
+  loadQueue.length = 0;
+  dirtyChunks.clear();
+  inNether = toNether;
+  modifications = toNether ? netherMods : overworldMods;
+}
+
+function ensureNetherSpawn() {
+  if (netherSpawnBuilt) return;
+  netherSpawnBuilt = true;
+  // スポーン地点を 7x7x5 だけ開ける (上は空気、床はネザーラック)
+  for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+    setWorld(NETHER_SPAWN_X + dx, NETHER_SPAWN_Y - 1, NETHER_SPAWN_Z + dz, 20);
+    for (let dy = 0; dy <= 4; dy++) {
+      setWorld(NETHER_SPAWN_X + dx, NETHER_SPAWN_Y + dy, NETHER_SPAWN_Z + dz, 0);
     }
   }
-  // 帰りポータル: 黒曜石の枠 + 内部のポータルブロック
-  const fx = NETHER_X - 2, fy = NETHER_Y + 1, fz = NETHER_Z;
-  for (let i = -1; i <= 2; i++) {
-    setBlock(fx + i, fy,     fz, 17);
-    setBlock(fx + i, fy + 4, fz, 17);
+  // 帰りポータル: 4x5 黒曜石の枠 + 内部 2x3 のポータル
+  const fx = NETHER_SPAWN_X - 2, fy = NETHER_SPAWN_Y, fz = NETHER_SPAWN_Z;
+  for (let i = 0; i <= 3; i++) {
+    setWorld(fx + i, fy,     fz, 17);
+    setWorld(fx + i, fy + 4, fz, 17);
   }
   for (let j = 1; j <= 3; j++) {
-    setBlock(fx - 1, fy + j, fz, 17);
-    setBlock(fx + 2, fy + j, fz, 17);
+    setWorld(fx,     fy + j, fz, 17);
+    setWorld(fx + 3, fy + j, fz, 17);
   }
-  for (let i = 0; i < 2; i++) for (let j = 1; j <= 3; j++) {
-    setBlock(fx + i, fy + j, fz, 19);
+  for (let i = 1; i <= 2; i++) for (let j = 1; j <= 3; j++) {
+    setWorld(fx + i, fy + j, fz, 19);
   }
 }
 function enterNether() {
   if (inNether) return;
-  buildNetherArea();
   savedOverworldPos = { x: player.position.x, y: player.position.y, z: player.position.z };
-  player.position.set(NETHER_X + 0.5, NETHER_Y + 1 + EYE_HEIGHT, NETHER_Z + 0.5);
+  switchWorld(true);
+  ensureNetherSpawn();
+  player.position.set(NETHER_SPAWN_X + 0.5, NETHER_SPAWN_Y + EYE_HEIGHT, NETHER_SPAWN_Z + 0.5);
   velocity.set(0, 0, 0);
-  inNether = true;
   portalCooldown = 2;
   scene.background = new THREE.Color(0x4a1a10);
   if (scene.fog) scene.fog.color.setHex(0x4a1a10);
-  cloudGroup.visible = false;
 }
 function leaveNether() {
   if (!inNether) return;
+  switchWorld(false);
   if (savedOverworldPos) {
     player.position.set(savedOverworldPos.x, savedOverworldPos.y, savedOverworldPos.z);
   } else {
     player.position.set(SPAWN_X + 0.5, spawnFeetY + EYE_HEIGHT, SPAWN_Z + 0.5);
   }
   velocity.set(0, 0, 0);
-  inNether = false;
   portalCooldown = 2;
   scene.background = new THREE.Color(0x88ccee);
   if (scene.fog) scene.fog.color.setHex(0x88ccee);
-  if (cloudsVisible) cloudGroup.visible = true;
 }
 function checkPortalTouch(dt) {
   if (portalCooldown > 0) { portalCooldown -= dt; return; }
