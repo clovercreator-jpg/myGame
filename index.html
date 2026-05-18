@@ -70,12 +70,12 @@
   #hotbar {
     position: absolute; bottom: 10px; left: 50%;
     transform: translateX(-50%);
-    display: grid; grid-template-columns: repeat(7, 38px);
+    display: grid; grid-template-columns: repeat(8, 36px);
     gap: 3px; padding: 4px;
     background: rgba(0,0,0,0.45); border-radius: 6px; z-index: 5;
   }
   .slot {
-    width: 38px; height: 38px;
+    width: 36px; height: 36px;
     border: 2px solid rgba(255,255,255,0.3); border-radius: 4px;
     background-size: cover; image-rendering: pixelated;
     position: relative; cursor: pointer;
@@ -240,6 +240,7 @@
   <div class="slot"          data-block="10" data-num="E"></div>
   <div class="slot"          data-block="15" data-num="R"></div>
   <div class="slot"          data-block="16" data-num="T"></div>
+  <div class="slot"          data-block="17" data-num="Y"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -611,6 +612,18 @@ const cobbledDeepslateTex = makeTexture('cobbledDeepslate', ctx => {
   ctx.fillRect(0, 7, 16, 1); ctx.fillRect(7, 0, 1, 8);
   ctx.fillRect(3, 8, 1, 8);  ctx.fillRect(11, 8, 1, 8);
 });
+const obsidianTex = makeTexture('obsidian', ctx => {
+  ctx.fillStyle = '#1a0d28'; ctx.fillRect(0, 0, 16, 16);
+  const pal = ['#15082a', '#1f0f2d', '#2a1638', '#0e0420'];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < 0.7) { ctx.fillStyle = pal[(Math.random()*4)|0]; ctx.fillRect(x, y, 1, 1); }
+  }
+  // 紫の輝き
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = '#7a44a4';
+    ctx.fillRect((Math.random()*16)|0, (Math.random()*16)|0, 1, 1);
+  }
+});
 
 const grassMaterials = [
   new THREE.MeshLambertMaterial({ map: grassSideTex }),
@@ -640,6 +653,7 @@ const stairsMaterial = new THREE.MeshLambertMaterial({ map: stairsTex });
 const doorMaterial   = new THREE.MeshLambertMaterial({ map: doorTex });
 const deepslateMaterial = new THREE.MeshLambertMaterial({ map: deepslateTex });
 const cobbledDeepslateMaterial = new THREE.MeshLambertMaterial({ map: cobbledDeepslateTex });
+const obsidianMaterial = new THREE.MeshLambertMaterial({ map: obsidianTex });
 const waterMaterial  = new THREE.MeshLambertMaterial({
   map: waterTex, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false
 });
@@ -658,6 +672,7 @@ const BLOCK_TYPES = {
   9:  { material: waterMaterial,   icon: 'water' },
   15: { material: deepslateMaterial, icon: 'deepslate' },
   16: { material: cobbledDeepslateMaterial, icon: 'cobbledDeepslate' },
+  17: { material: obsidianMaterial,         icon: 'obsidian' },
   10: { material: lavaMaterial,    icon: 'lava' },
   11: { material: planksMaterial,  icon: 'planks' },
   12: { material: stairsMaterial,  icon: 'stairs' },
@@ -1083,39 +1098,56 @@ function updateClouds(dt) {
 // --- 流体シミュレーション (水 9 / 溶岩 10) ---
 const fluidQueue = []; // { x, y, z, type, distance }
 const FLUID_SPREAD = { 9: 6, 10: 3 };
-const FLUID_TICK = { 9: 0.30, 10: 0.55 }; // 溶岩は遅め
 let fluidTimer = 0;
 const FLUID_INTERVAL = 0.25;
 
 function scheduleFluid(x, y, z, type, distance) {
   fluidQueue.push({ x, y, z, type, distance });
 }
+function hasNeighborOfType(x, y, z, t) {
+  return getBlock(x+1,y,z) === t || getBlock(x-1,y,z) === t ||
+         getBlock(x,y+1,z) === t || getBlock(x,y-1,z) === t ||
+         getBlock(x,y,z+1) === t || getBlock(x,y,z-1) === t;
+}
+// 流体を 1 セルに「入れる」。反対の流体と接触したら丸石 (溶岩→水) /
+// 黒曜石 (水→溶岩) に変化させ、流体としての伝播は止める。
+// 戻り値: true なら継続して流れる、false なら止まる
+function flowFluidInto(x, y, z, type) {
+  if (type === 10 && hasNeighborOfType(x, y, z, 9)) {
+    setBlock(x, y, z, 2); // 溶岩が水に触れた -> 丸石
+    return false;
+  }
+  if (type === 9 && hasNeighborOfType(x, y, z, 10)) {
+    setBlock(x, y, z, 17); // 水が溶岩に触れた -> 黒曜石
+    return false;
+  }
+  setBlock(x, y, z, type);
+  return true;
+}
 function updateFluids(dt) {
   fluidTimer += dt;
   if (fluidTimer < FLUID_INTERVAL) return;
   fluidTimer = 0;
   if (fluidQueue.length === 0) return;
-  const batch = fluidQueue.splice(0, 250); // 1 tick あたり最大 250 セル
+  const batch = fluidQueue.splice(0, 250);
   for (const f of batch) {
     const { x, y, z, type, distance } = f;
-    if (getBlock(x, y, z) !== type) continue; // 取り除かれたら無視
+    if (getBlock(x, y, z) !== type) continue;
     const limit = FLUID_SPREAD[type] ?? 6;
-    // 下方向: 重力で下に流れる (距離リセット)
+    // 下方向
     const by = y - 1;
     if (by >= 0 && getBlock(x, by, z) === 0) {
-      setBlock(x, by, z, type);
-      scheduleFluid(x, by, z, type, 0);
+      if (flowFluidInto(x, by, z, type)) scheduleFluid(x, by, z, type, 0);
       continue;
     }
-    // 横方向: 距離以内なら 4 方向へ
+    // 横方向
     if (distance < limit) {
       const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       for (const [dx, dz] of dirs) {
         const nx = x + dx, nz = z + dz;
         if (nx < 0 || nx >= WORLD_SIZE || nz < 0 || nz >= WORLD_SIZE) continue;
         if (getBlock(nx, y, nz) === 0) {
-          setBlock(nx, y, nz, type);
-          scheduleFluid(nx, y, nz, type, distance + 1);
+          if (flowFluidInto(nx, y, nz, type)) scheduleFluid(nx, y, nz, type, distance + 1);
         }
       }
     }
@@ -1175,7 +1207,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11, 12, 13, 9, 10, 15, 16]);
+const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11, 12, 13, 9, 10, 15, 16, 17]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -1914,7 +1946,7 @@ function explode(x, y, z) {
         if (d > R) continue;
         const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz);
         const t = getBlock(bx, by, bz);
-        if (t === 0 || t === 3 || t === 9 || t === 10 || t === 13 || t === 14) continue; // 岩盤・水・溶岩・ドアは壊れない
+        if (t === 0 || t === 3 || t === 9 || t === 10 || t === 13 || t === 14 || t === 17) continue; // 岩盤・水・溶岩・ドア・黒曜石は壊れない
         if (Math.random() < 1 - d / R - 0.1) setBlock(bx, by, bz, 0);
       }
     }
@@ -2012,6 +2044,7 @@ if (!isTouch) {
       case 'KeyE':   selectBlock(10); break;
       case 'KeyR':   selectBlock(15); break;
       case 'KeyT':   selectBlock(16); break;
+      case 'KeyY':   selectBlock(17); break;
     }
   });
   addEventListener('keyup', e => {
@@ -2234,11 +2267,14 @@ function tryPlace() {
     registerDoor(x, y, z);
     return;
   }
-  setBlock(x, y, z, selectedBlock);
-  // 流体を置いた場合は流れ始める
   if (selectedBlock === 9 || selectedBlock === 10) {
-    scheduleFluid(x, y, z, selectedBlock, 0);
+    // 設置時にも反対の流体と触れていれば変換
+    if (flowFluidInto(x, y, z, selectedBlock)) {
+      scheduleFluid(x, y, z, selectedBlock, 0);
+    }
+    return;
   }
+  setBlock(x, y, z, selectedBlock);
 }
 
 // --- プレイヤー物理 ---
