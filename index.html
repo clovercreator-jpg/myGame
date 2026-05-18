@@ -70,7 +70,7 @@
   #hotbar {
     position: absolute; bottom: 10px; left: 50%;
     transform: translateX(-50%);
-    display: grid; grid-template-columns: repeat(6, 38px);
+    display: grid; grid-template-columns: repeat(7, 38px);
     gap: 3px; padding: 4px;
     background: rgba(0,0,0,0.45); border-radius: 6px; z-index: 5;
   }
@@ -238,6 +238,8 @@
   <div class="slot"          data-block="13" data-num="0"></div>
   <div class="slot"          data-block="9"  data-num="Q"></div>
   <div class="slot"          data-block="10" data-num="E"></div>
+  <div class="slot"          data-block="15" data-num="R"></div>
+  <div class="slot"          data-block="16" data-num="T"></div>
 </div>
 <div id="touchUI">
   <div id="joystick"><div id="joyKnob"></div></div>
@@ -1078,6 +1080,48 @@ function updateClouds(dt) {
   if (tex) tex.offset.x = (tex.offset.x + dt * 0.005) % 1;
 }
 
+// --- 流体シミュレーション (水 9 / 溶岩 10) ---
+const fluidQueue = []; // { x, y, z, type, distance }
+const FLUID_SPREAD = { 9: 6, 10: 3 };
+const FLUID_TICK = { 9: 0.30, 10: 0.55 }; // 溶岩は遅め
+let fluidTimer = 0;
+const FLUID_INTERVAL = 0.25;
+
+function scheduleFluid(x, y, z, type, distance) {
+  fluidQueue.push({ x, y, z, type, distance });
+}
+function updateFluids(dt) {
+  fluidTimer += dt;
+  if (fluidTimer < FLUID_INTERVAL) return;
+  fluidTimer = 0;
+  if (fluidQueue.length === 0) return;
+  const batch = fluidQueue.splice(0, 250); // 1 tick あたり最大 250 セル
+  for (const f of batch) {
+    const { x, y, z, type, distance } = f;
+    if (getBlock(x, y, z) !== type) continue; // 取り除かれたら無視
+    const limit = FLUID_SPREAD[type] ?? 6;
+    // 下方向: 重力で下に流れる (距離リセット)
+    const by = y - 1;
+    if (by >= 0 && getBlock(x, by, z) === 0) {
+      setBlock(x, by, z, type);
+      scheduleFluid(x, by, z, type, 0);
+      continue;
+    }
+    // 横方向: 距離以内なら 4 方向へ
+    if (distance < limit) {
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const [dx, dz] of dirs) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nx >= WORLD_SIZE || nz < 0 || nz >= WORLD_SIZE) continue;
+        if (getBlock(nx, y, nz) === 0) {
+          setBlock(nx, y, nz, type);
+          scheduleFluid(nx, y, nz, type, distance + 1);
+        }
+      }
+    }
+  }
+}
+
 // --- ハイライト ---
 const highlightMesh = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.005, 1.005, 1.005)),
@@ -1131,7 +1175,7 @@ function applyLook(dYaw, dPitch) {
 }
 
 // --- ホットバー ---
-const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11, 12, 13, 9, 10]);
+const SELECTABLE = new Set([1, 2, 7, 6, 4, 5, 8, 11, 12, 13, 9, 10, 15, 16]);
 let selectedBlock = 1;
 const slotEls = document.querySelectorAll('#hotbar .slot');
 slotEls.forEach(el => {
@@ -1966,6 +2010,8 @@ if (!isTouch) {
       case 'Digit0': selectBlock(13); break;
       case 'KeyQ':   selectBlock(9);  break;
       case 'KeyE':   selectBlock(10); break;
+      case 'KeyR':   selectBlock(15); break;
+      case 'KeyT':   selectBlock(16); break;
     }
   });
   addEventListener('keyup', e => {
@@ -2173,12 +2219,15 @@ function tryPlace() {
   const { placeX: x, placeY: y, placeZ: z } = tgt;
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return;
   if (y < 0 || y >= WORLD_HEIGHT) return;
-  if (getBlock(x, y, z) !== 0) return;
+  const cur = getBlock(x, y, z);
+  // 既存ブロックは空気か流体 (流体は上書き可)
+  if (cur !== 0 && cur !== 9 && cur !== 10) return;
   if (intersectsPlayer(x, y, z)) return;
   if (selectedBlock === 13) {
     // ドアは2ブロック分必要
     if (y + 1 >= WORLD_HEIGHT) return;
-    if (getBlock(x, y + 1, z) !== 0) return;
+    const above = getBlock(x, y + 1, z);
+    if (above !== 0 && above !== 9 && above !== 10) return;
     if (intersectsPlayer(x, y + 1, z)) return;
     setBlock(x, y, z, 13);
     setBlock(x, y + 1, z, 13);
@@ -2186,6 +2235,10 @@ function tryPlace() {
     return;
   }
   setBlock(x, y, z, selectedBlock);
+  // 流体を置いた場合は流れ始める
+  if (selectedBlock === 9 || selectedBlock === 10) {
+    scheduleFluid(x, y, z, selectedBlock, 0);
+  }
 }
 
 // --- プレイヤー物理 ---
@@ -2702,6 +2755,7 @@ function animate() {
       updatePlayer(dt);
       updateEntities(dt);
       updateDoors();
+      updateFluids(dt);
       updateExplosionVisuals(dt);
       updateChunkStreaming();
       updateCoords();
