@@ -1159,8 +1159,8 @@ const CLOUD_PLANE_SIZE = 900;             // カメラ far より少し小さい
 })();
 let cloudDriftX = 0;
 function updateClouds(dt) {
-  cloudGroup.visible = cloudsVisible;
-  if (!cloudsVisible) return;
+  cloudGroup.visible = cloudsVisible && !inNether;
+  if (!cloudGroup.visible) return;
   // 雲レイヤーをプレイヤーの真上に追従させる (常に頭上に雲が見える)
   cloudGroup.position.x = player.position.x;
   cloudGroup.position.z = player.position.z;
