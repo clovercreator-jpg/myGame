@@ -198,7 +198,7 @@
   <div class="modal-page" id="settingsVideo" style="display:none">
     <h2>ビデオ設定</h2>
     <label>霧の濃さ: <span id="fogLabel">50</span></label>
-    <input type="range" id="fogSlider" min="1" max="200" value="50">
+    <input type="range" id="fogSlider" min="-25" max="325" value="50">
     <label>雲:</label>
     <select id="cloudSelect">
       <option value="show" selected>表示</option>
@@ -276,8 +276,8 @@ const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 // --- Scene ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x88ccee);
-// 霧の初期値はビデオ設定スライダ 50 に対応 (far ~208, near ~168)
-scene.fog = new THREE.Fog(0x88ccee, 168, 208);
+// 霧の初期値はビデオ設定スライダ 50 に対応 (-25..325 範囲, far ~239, near ~199)
+scene.fog = new THREE.Fog(0x88ccee, 199, 239);
 
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 500);
 camera.rotation.order = 'YXZ';
@@ -3165,8 +3165,8 @@ bgmVolume = 0.30;
 const fogSlider = document.getElementById('fogSlider');
 const fogLabel = document.getElementById('fogLabel');
 function applyFogLevel(v) {
-  if (v <= 1) { scene.fog = null; return; }
-  const t = (v - 1) / 199;
+  if (v <= -25) { scene.fog = null; return; }
+  const t = Math.max(0, Math.min(1, (v - (-25)) / 350));
   const far = Math.max(4, Math.round(600 * Math.exp(-t * 4.3)));
   const near = Math.max(2, far - Math.min(40, Math.round(far * 0.5)));
   const color = inNether ? 0x4a1a10 : 0x88ccee;
