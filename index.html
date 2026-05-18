@@ -3116,7 +3116,17 @@ function exitGame() {
   pointerLocked = false;
   bgmPlaying = false;
   if (bgmTimer) clearTimeout(bgmTimer);
-  if (audioCtx) { try { audioCtx.suspend(); } catch (e) {} }
+  // BGM を即座に黙らせる: masterGain を 0 にしてから AudioContext を close
+  if (masterGain && audioCtx) {
+    try { masterGain.gain.cancelScheduledValues(audioCtx.currentTime); } catch (e) {}
+    try { masterGain.gain.setValueAtTime(0, audioCtx.currentTime); } catch (e) {}
+    try { masterGain.disconnect(); } catch (e) {}
+  }
+  if (audioCtx) {
+    try { audioCtx.suspend(); } catch (e) {}
+    try { audioCtx.close(); } catch (e) {}
+    audioCtx = null;
+  }
   if (document.pointerLockElement) document.exitPointerLock();
   document.body.innerHTML =
     '<div style="position:fixed;inset:0;background:#000;color:#fff;display:flex;' +
