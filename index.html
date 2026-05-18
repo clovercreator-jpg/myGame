@@ -1056,43 +1056,57 @@ makeWall(WORLD_SIZE/2, WORLD_SIZE,   WORLD_SIZE, 0);
 // --- 雲 ---
 let cloudsVisible = true;
 const cloudGroup = new THREE.Group();
+const CLOUD_TILE_REPEAT = 18;             // 多めの繰り返し = 雲が密に
+const CLOUD_PLANE_SIZE = 900;             // カメラ far より少し小さい (= プレイヤー追従して常に頭上)
 (function createClouds() {
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  c.width = c.height = 128;
   const cx = c.getContext('2d');
   cx.imageSmoothingEnabled = false;
-  cx.clearRect(0, 0, 64, 64);
-  // ピクセル雲のかたまり
-  for (let i = 0; i < 16; i++) {
-    const sx = Math.floor(Math.random() * 56);
-    const sy = Math.floor(Math.random() * 56);
-    const w = 4 + Math.floor(Math.random() * 8);
-    const h = 3 + Math.floor(Math.random() * 5);
-    cx.fillStyle = 'rgba(255,255,255,0.92)';
+  cx.clearRect(0, 0, 128, 128);
+  // たくさんのピクセル雲を散りばめる
+  for (let i = 0; i < 90; i++) {
+    const sx = Math.floor(Math.random() * 120);
+    const sy = Math.floor(Math.random() * 120);
+    const w = 5 + Math.floor(Math.random() * 16);
+    const h = 4 + Math.floor(Math.random() * 10);
+    cx.fillStyle = 'rgba(255,255,255,0.98)';
     cx.fillRect(sx, sy, w, h);
-    cx.fillStyle = 'rgba(225,228,238,0.7)';
+    cx.fillStyle = 'rgba(220,225,235,0.85)';
     cx.fillRect(sx, sy + h, w, 1);
+    cx.fillRect(sx - 1, sy, 1, h);
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(8, 8);
+  tex.repeat.set(CLOUD_TILE_REPEAT, CLOUD_TILE_REPEAT);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   const mat = new THREE.MeshBasicMaterial({
-    map: tex, transparent: true, opacity: 0.85,
-    depthWrite: false, side: THREE.DoubleSide
+    map: tex, transparent: true, opacity: 0.95,
+    depthWrite: false, side: THREE.DoubleSide,
+    fog: false                            // 霧の影響を受けず常時はっきり見える
   });
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE * 3, WORLD_SIZE * 3), mat);
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(CLOUD_PLANE_SIZE, CLOUD_PLANE_SIZE), mat);
   plane.rotation.x = -Math.PI / 2;
-  plane.position.set(WORLD_SIZE / 2, 188, WORLD_SIZE / 2);
+  plane.position.y = 188;
   cloudGroup.add(plane);
   scene.add(cloudGroup);
 })();
+let cloudDriftX = 0;
 function updateClouds(dt) {
   cloudGroup.visible = cloudsVisible;
   if (!cloudsVisible) return;
+  // 雲レイヤーをプレイヤーの真上に追従させる (常に頭上に雲が見える)
+  cloudGroup.position.x = player.position.x;
+  cloudGroup.position.z = player.position.z;
+  cloudDriftX += dt * 1.2;                // 風の速度 (blocks/sec)
   const tex = cloudGroup.children[0].material.map;
-  if (tex) tex.offset.x = (tex.offset.x + dt * 0.005) % 1;
+  if (tex) {
+    const tileSize = CLOUD_PLANE_SIZE / CLOUD_TILE_REPEAT;
+    // プレイヤー位置オフセットで雲は世界に固定 + ドリフトで風が吹く感じ
+    tex.offset.x = ((player.position.x + cloudDriftX) / tileSize) % 1;
+    tex.offset.y = (player.position.z / tileSize) % 1;
+  }
 }
 
 // --- 流体シミュレーション (水 9 / 溶岩 10) ---
