@@ -196,13 +196,8 @@
   </div>
   <div class="modal-page" id="settingsVideo" style="display:none">
     <h2>ビデオ設定</h2>
-    <label>霧:</label>
-    <select id="fogSelect">
-      <option value="off">なし</option>
-      <option value="weak">弱い</option>
-      <option value="normal" selected>普通</option>
-      <option value="strong">強い</option>
-    </select>
+    <label>霧の濃さ: <span id="fogLabel">100</span></label>
+    <input type="range" id="fogSlider" min="1" max="200" value="100">
     <label>雲:</label>
     <select id="cloudSelect">
       <option value="show" selected>表示</option>
@@ -3138,14 +3133,20 @@ bgmSlider.addEventListener('input', e => {
 // 初期反映
 bgmVolume = 0.30;
 
-const fogSelect = document.getElementById('fogSelect');
-fogSelect.addEventListener('change', e => {
-  const v = e.target.value;
-  const baseFar = VIEW_DIST * CHUNK_SIZE - 4;
-  if (v === 'off') scene.fog = null;
-  else if (v === 'weak')   scene.fog = new THREE.Fog(0x88ccee, baseFar - 16, baseFar + 20);
-  else if (v === 'normal') scene.fog = new THREE.Fog(0x88ccee, 48, baseFar);
-  else if (v === 'strong') scene.fog = new THREE.Fog(0x88ccee, 18, baseFar - 30);
+const fogSlider = document.getElementById('fogSlider');
+const fogLabel = document.getElementById('fogLabel');
+function applyFogLevel(v) {
+  if (v <= 1) { scene.fog = null; return; }
+  const t = (v - 1) / 199;
+  const far = Math.max(4, Math.round(600 * Math.exp(-t * 4.3)));
+  const near = Math.max(2, far - Math.min(40, Math.round(far * 0.5)));
+  const color = inNether ? 0x4a1a10 : 0x88ccee;
+  scene.fog = new THREE.Fog(color, near, far);
+}
+fogSlider.addEventListener('input', e => {
+  const v = parseInt(e.target.value, 10);
+  fogLabel.textContent = v;
+  applyFogLevel(v);
 });
 const cloudSelect = document.getElementById('cloudSelect');
 cloudSelect.addEventListener('change', e => { cloudsVisible = e.target.value === 'show'; });
