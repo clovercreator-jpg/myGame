@@ -2995,22 +2995,27 @@ let bgmEndAudioTime = 0;   // 現在の曲が鳴り終わる AudioContext 時刻
 let bgmRequested = false;  // ワールド生成完了 + 15秒経過で true
 let worldReadyAt = 0;
 
+const TARGET_TRACK_DURATION = 600; // 各曲を約 10 分にループ
 function scheduleTrack(track) {
   if (!audioCtx) return 0;
   const start = audioCtx.currentTime + 0.15;
   let cursor = start;
   const tone = track.tone || 'sine';
   const vol = track.vol || 0.22;
-  for (const [note, dur] of track.melody) {
-    const f = NOTE[note] || 0;
-    if (f > 0) {
-      bgmPlayNote(f, dur, vol, cursor, tone);
-      if (track.harmony) {
-        const hf = f * Math.pow(2, track.harmony / 12);
-        bgmPlayNote(hf, dur, vol * 0.55, cursor, tone);
+  // 旋律: 約 10 分になるまでループ
+  let safety = 0;
+  while (cursor - start < TARGET_TRACK_DURATION && safety++ < 800) {
+    for (const [note, dur] of track.melody) {
+      const f = NOTE[note] || 0;
+      if (f > 0) {
+        bgmPlayNote(f, dur, vol, cursor, tone);
+        if (track.harmony) {
+          const hf = f * Math.pow(2, track.harmony / 12);
+          bgmPlayNote(hf, dur, vol * 0.55, cursor, tone);
+        }
       }
+      cursor += dur;
     }
-    cursor += dur;
   }
   const melodyEnd = cursor;
   let bassEnd = start;
