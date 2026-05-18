@@ -2697,8 +2697,8 @@ function animate() {
   if (worldReady) {
     processLoadQueue(6);
     rebuildDirtyChunks(2);
-    updateClouds(dt);
-    if (pointerLocked) {
+    if (pointerLocked && !settingsOpen) {
+      updateClouds(dt);
       updatePlayer(dt);
       updateEntities(dt);
       updateDoors();
