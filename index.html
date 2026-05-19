@@ -209,6 +209,11 @@
       <option value="show" selected>表示</option>
       <option value="hide">非表示</option>
     </select>
+    <label>モブのHP表示:</label>
+    <select id="mobHPSelect">
+      <option value="hide" selected>非表示</option>
+      <option value="show">表示</option>
+    </select>
     <button class="back-settings">戻る</button>
     <button class="close-settings">閉じる</button>
   </div>
@@ -1141,6 +1146,7 @@ makeWall(WORLD_SIZE/2, WORLD_SIZE,   WORLD_SIZE, 0);
 
 // --- 雲 ---
 let cloudsVisible = true;
+let showMobHP = false;
 const cloudGroup = new THREE.Group();
 const CLOUD_TILE_REPEAT = 18;             // 多めの繰り返し = 雲が密に
 const CLOUD_PLANE_SIZE = 900;             // カメラ far より少し小さい (= プレイヤー追従して常に頭上)
@@ -1532,14 +1538,51 @@ class Entity {
     this.radius = 0.4;
     this.height = 1.0;
     this.hp = 10;
+    this.hpMax = 10;
     this.hurtTimer = 0;
+    this.takesFallDamage = true;
     scene.add(this.group);
+  }
+  attachHPBar() {
+    if (this.hpSprite) return;
+    this.hpCanvas = document.createElement('canvas');
+    this.hpCanvas.width = 64; this.hpCanvas.height = 12;
+    this.hpCtx = this.hpCanvas.getContext('2d');
+    this.hpTex = new THREE.CanvasTexture(this.hpCanvas);
+    this.hpTex.magFilter = THREE.NearestFilter;
+    this.hpTex.minFilter = THREE.NearestFilter;
+    const mat = new THREE.SpriteMaterial({
+      map: this.hpTex, depthTest: false, depthWrite: false, transparent: true,
+      sizeAttenuation: true
+    });
+    this.hpSprite = new THREE.Sprite(mat);
+    this.hpSprite.scale.set(1.0, 0.16, 1);
+    this.hpSprite.position.y = (this.height || 1) + 0.4;
+    this.hpSprite.renderOrder = 1000;
+    this.hpSprite.visible = showMobHP;
+    this.group.add(this.hpSprite);
+    this.drawHP();
+  }
+  drawHP() {
+    if (!this.hpCtx) return;
+    const ctx = this.hpCtx, w = 64, h = 12;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 0, w, h);
+    const r = Math.max(0, Math.min(1, this.hp / this.hpMax));
+    ctx.fillStyle = r > 0.5 ? '#4ce040' : (r > 0.25 ? '#e0c040' : '#e04040');
+    ctx.fillRect(1, 1, (w - 2) * r, h - 2);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+    this.hpTex.needsUpdate = true;
   }
   takeDamage(amount) {
     if (this.dead) return;
     this.hp -= amount;
     this.hurtTimer = 0.18;
     if (this.hp <= 0) this.dead = true;
+    if (this.hpCtx) this.drawHP();
   }
   tickHurt(dt) {
     if (this.hurtTimer > 0) {
@@ -1549,6 +1592,10 @@ class Entity {
     } else if (this.group.scale.x !== 1) {
       this.group.scale.set(1, 1, 1);
     }
+    if (this.hpSprite) {
+      this.hpSprite.visible = showMobHP && !this.dead;
+      this.hpSprite.position.y = this.height + 0.4;
+    }
   }
   applyGravity(dt) {
     this.velocity.y -= 28 * dt;
@@ -1557,10 +1604,18 @@ class Entity {
     if (!this.collidesAt(nx, pos.y, pos.z)) pos.x = nx; else this.velocity.x = 0;
     const nz = pos.z + this.velocity.z * dt;
     if (!this.collidesAt(pos.x, pos.y, nz)) pos.z = nz; else this.velocity.z = 0;
+    const fallSpeed = this.velocity.y;
     const ny = pos.y + this.velocity.y * dt;
     if (!this.collidesAt(pos.x, ny, pos.z)) { pos.y = ny; this.onGround = false; }
     else {
-      if (this.velocity.y < 0) this.onGround = true;
+      if (this.velocity.y < 0) {
+        this.onGround = true;
+        // 落下ダメージ (ゴーレム以外)
+        if (this.takesFallDamage && fallSpeed < -16) {
+          const dmg = Math.floor((-fallSpeed - 13) / 2);
+          if (dmg > 0) this.takeDamage(dmg);
+        }
+      }
       this.velocity.y = 0;
     }
   }
@@ -1592,7 +1647,7 @@ class Entity {
 class Pig extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
-    this.hp = 5;
+    this.hp = 5; this.hpMax = 5;
     this.radius = 0.45;
     this.height = 0.95;
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.3), pigBodyMat);
@@ -1648,6 +1703,7 @@ class Pig extends Entity {
 class Creeper extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
+    this.hp = 10; this.hpMax = 10;
     this.radius = 0.32;
     this.height = 2.0;
     this.body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 0.4), creeperBodyMat);
@@ -1741,6 +1797,7 @@ const villagerArmMat  = new THREE.MeshLambertMaterial({ color: 0x9e8e6e });
 class Villager extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
+    this.hp = 10; this.hpMax = 10;
     this.radius = 0.3;
     this.height = 1.95;
     const lower = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), villagerRobeMat);
@@ -1800,7 +1857,8 @@ const golemEyeMat  = new THREE.MeshBasicMaterial({ color: 0xff5040 });
 class IronGolem extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
-    this.hp = 50;
+    this.hp = 50; this.hpMax = 50;
+    this.takesFallDamage = false;
     this.attackCooldown = 0;
     this.radius = 0.55;
     this.height = 2.7;
@@ -1931,7 +1989,7 @@ const zombiePantsMat = new THREE.MeshLambertMaterial({ color: 0x1c3868 });
 class Zombie extends Entity {
   constructor(x, y, z, vx, vz) {
     super(x, y, z);
-    this.hp = 10;
+    this.hp = 10; this.hpMax = 10;
     this.radius = 0.32;
     this.height = 1.9;
     const lower = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), zombiePantsMat);
@@ -2761,6 +2819,7 @@ function updateEntities(dt) {
   const px = player.position.x, pz = player.position.z;
   for (let i = entities.length - 1; i >= 0; i--) {
     const e = entities[i];
+    if (!e.hpSprite) e.attachHPBar();
     const dx = e.group.position.x - px;
     const dz = e.group.position.z - pz;
     if (dx*dx + dz*dz < 90 * 90) e.update(dt);
@@ -3183,6 +3242,13 @@ const crosshairSelect = document.getElementById('crosshairSelect');
 const crosshairEl = document.getElementById('crosshair');
 crosshairSelect.addEventListener('change', e => {
   crosshairEl.style.display = e.target.value === 'show' ? 'block' : 'none';
+});
+const mobHPSelect = document.getElementById('mobHPSelect');
+mobHPSelect.addEventListener('change', e => {
+  showMobHP = e.target.value === 'show';
+  for (const ent of entities) {
+    if (ent.hpSprite) ent.hpSprite.visible = showMobHP && !ent.dead;
+  }
 });
 
 // --- 起動 ---
