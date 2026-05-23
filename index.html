@@ -1520,12 +1520,81 @@ function selectBlock(id) {
   slotEls.forEach(el => el.classList.toggle('selected', +el.dataset.block === id));
 }
 
-// --- エンティティ (豚・クリーパー) ---
-const pigBodyMat  = new THREE.MeshLambertMaterial({ color: 0xee9999 });
-const pigSnoutMat = new THREE.MeshLambertMaterial({ color: 0xcc7777 });
-const creeperBodyMat   = new THREE.MeshLambertMaterial({ color: 0x6dc956 });
-const creeperFlashMat  = new THREE.MeshLambertMaterial({ color: 0xfff4c4 });
+// --- エンティティ (Minecraft 風のテクスチャ付き) ---
 const blackMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+function mobFill(ctx, base, pal, density) {
+  ctx.fillStyle = base; ctx.fillRect(0, 0, 16, 16);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.random() < density) { ctx.fillStyle = pal[(Math.random() * pal.length) | 0]; ctx.fillRect(x, y, 1, 1); }
+  }
+}
+function headMats(skin, face) { return [skin, skin, skin, skin, face, skin]; }
+// 豚
+const pigSkinTex = makeTexture('pigSkin', c => mobFill(c, '#e89a9a', ['#dc8e8e','#f0a6a6','#e09494'], 0.5));
+const pigFaceTex = makeTexture('pigFace', c => {
+  mobFill(c, '#e89a9a', ['#dc8e8e','#f0a6a6'], 0.4);
+  c.fillStyle = '#101010'; c.fillRect(2,4,3,3); c.fillRect(11,4,3,3);
+  c.fillStyle = '#ffffff'; c.fillRect(2,4,1,1); c.fillRect(11,4,1,1);
+});
+const pigSnoutTex = makeTexture('pigSnout', c => {
+  mobFill(c, '#d98686', ['#cc7878'], 0.3);
+  c.fillStyle = '#a85e5e'; c.fillRect(3,6,3,5); c.fillRect(10,6,3,5);
+});
+const pigSkinMat = new THREE.MeshLambertMaterial({ map: pigSkinTex });
+const pigFaceMat = new THREE.MeshLambertMaterial({ map: pigFaceTex });
+const pigSnoutMat = new THREE.MeshLambertMaterial({ map: pigSnoutTex });
+const pigBodyMat = pigSkinMat;
+// クリーパー
+const creeperSkinTex = makeTexture('creeperSkin', c => mobFill(c, '#6dc44a', ['#5aa838','#7ace52','#65bc44','#4f9030'], 1));
+const creeperFaceTex = makeTexture('creeperFace', c => {
+  mobFill(c, '#6dc44a', ['#5aa838','#7ace52','#65bc44'], 1);
+  c.fillStyle = '#13270f';
+  c.fillRect(3,4,3,3); c.fillRect(10,4,3,3);                 // 目
+  c.fillRect(6,7,4,6);                                       // 口中央
+  c.fillRect(4,10,3,3); c.fillRect(9,10,3,3);                // 口の両側
+});
+const creeperSkinMat = new THREE.MeshLambertMaterial({ map: creeperSkinTex });
+const creeperFaceMat = new THREE.MeshLambertMaterial({ map: creeperFaceTex });
+const creeperBodyMat = creeperSkinMat;
+const creeperFlashMat = new THREE.MeshLambertMaterial({ color: 0xfff4c4 });
+// ゾンビ
+const zombieSkinTex = makeTexture('zSkin', c => mobFill(c, '#4a7a3e', ['#3e6b34','#558a46','#456f3a'], 0.5));
+const zombieFaceTex = makeTexture('zFace', c => {
+  mobFill(c, '#4a7a3e', ['#3e6b34','#456f3a'], 0.4);
+  c.fillStyle = '#0a1408'; c.fillRect(3,5,3,3); c.fillRect(10,5,3,3);
+  c.fillStyle = '#142810'; c.fillRect(5,11,6,1);
+});
+const zombieShirtTex = makeTexture('zShirt', c => mobFill(c, '#2a8f8f', ['#247a7a','#34a0a0','#2a8f8f'], 0.6));
+const zombiePantsTex = makeTexture('zPants', c => mobFill(c, '#2a3a78', ['#22305f','#33438a'], 0.5));
+const zombieSkinMat = new THREE.MeshLambertMaterial({ map: zombieSkinTex });
+const zombieFaceMat = new THREE.MeshLambertMaterial({ map: zombieFaceTex });
+const zombieShirtMat = new THREE.MeshLambertMaterial({ map: zombieShirtTex });
+const zombiePantsMat = new THREE.MeshLambertMaterial({ map: zombiePantsTex });
+// 村人
+const villagerSkinTex = makeTexture('vSkin', c => mobFill(c, '#b08968', ['#a47d5c','#bc9070'], 0.4));
+const villagerFaceTex = makeTexture('vFace', c => {
+  mobFill(c, '#b08968', ['#a47d5c'], 0.3);
+  c.fillStyle = '#5a4632'; c.fillRect(2,4,12,1);                          // 一本眉
+  c.fillStyle = '#ffffff'; c.fillRect(3,6,3,2); c.fillRect(10,6,3,2);
+  c.fillStyle = '#3a4a8a'; c.fillRect(4,6,1,2); c.fillRect(11,6,1,2);     // 瞳
+});
+const villagerRobeTex = makeTexture('vRobe', c => mobFill(c, '#6e6a55', ['#605c48','#787358'], 0.4));
+const villagerArmTex = makeTexture('vArm', c => mobFill(c, '#9e8e6e', ['#8e7e5e'], 0.3));
+const villagerSkinMat = new THREE.MeshLambertMaterial({ map: villagerSkinTex });
+const villagerFaceMat = new THREE.MeshLambertMaterial({ map: villagerFaceTex });
+const villagerNoseMat = villagerSkinMat;
+const villagerRobeMat = new THREE.MeshLambertMaterial({ map: villagerRobeTex });
+const villagerArmMat = new THREE.MeshLambertMaterial({ map: villagerArmTex });
+const villagerHeadMat = villagerSkinMat;
+// アイアンゴーレム
+const golemSkinTex = makeTexture('gSkin', c => {
+  mobFill(c, '#c8c2b6', ['#bcb6a8','#d2ccc0','#c8c2b6'], 0.4);
+  c.fillStyle = '#5a7a3a'; c.fillRect(2,10,2,2); c.fillRect(12,3,2,2);    // つるの斑
+});
+const golemDarkTex = makeTexture('gDark', c => mobFill(c, '#8b8479', ['#7a746a','#928b80'], 0.4));
+const golemBodyMat = new THREE.MeshLambertMaterial({ map: golemSkinTex });
+const golemDarkMat = new THREE.MeshLambertMaterial({ map: golemDarkTex });
+const golemEyeMat  = new THREE.MeshBasicMaterial({ color: 0xff5040 });
 
 class Entity {
   constructor(x, y, z) {
@@ -1653,21 +1722,18 @@ class Pig extends Entity {
     this.hp = 5; this.hpMax = 5;
     this.radius = 0.45;
     this.height = 0.95;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.3), pigBodyMat);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.3), pigSkinMat);
     body.position.y = 0.55;
     this.group.add(body);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), pigBodyMat);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), headMats(pigSkinMat, pigFaceMat));
     head.position.set(0, 0.6, 0.95);
     this.group.add(head);
-    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.15), pigSnoutMat);
-    snout.position.set(0, 0.5, 1.4);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.18), pigSnoutMat);
+    snout.position.set(0, 0.45, 1.39);
     this.group.add(snout);
-    const eyeGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05);
-    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.18, 0.78, 1.31); this.group.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set(0.18, 0.78, 1.31); this.group.add(eR);
     const legGeo = new THREE.BoxGeometry(0.25, 0.4, 0.25);
     for (const [lx, lz] of [[-0.25, 0.45], [0.25, 0.45], [-0.25, -0.45], [0.25, -0.45]]) {
-      const leg = new THREE.Mesh(legGeo, pigBodyMat);
+      const leg = new THREE.Mesh(legGeo, pigSkinMat);
       leg.position.set(lx, 0.2, lz);
       this.group.add(leg);
       this.legs.push(leg);
@@ -1709,23 +1775,16 @@ class Creeper extends Entity {
     this.hp = 10; this.hpMax = 10;
     this.radius = 0.32;
     this.height = 2.0;
-    this.body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 0.4), creeperBodyMat);
+    this.body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 0.4), creeperSkinMat);
     this.body.position.y = 0.95;
     this.group.add(this.body);
-    this.head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), creeperBodyMat);
+    this.head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), headMats(creeperSkinMat, creeperFaceMat));
     this.head.position.y = 1.77;
     this.group.add(this.head);
-    // 顔
-    const eyeGeo = new THREE.BoxGeometry(0.13, 0.13, 0.01);
-    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.13, 1.85, 0.28); this.head.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set( 0.13, 1.85, 0.28); this.head.add(eR);
-    // mouth: simple frown
-    const m1 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.01), blackMat); m1.position.set(0, 1.66, 0.28); this.head.add(m1);
-    const m2 = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.01), blackMat); m2.position.set(0, 1.74, 0.28); this.head.add(m2);
     // 4本足
     const legGeo = new THREE.BoxGeometry(0.18, 0.4, 0.25);
     for (const [lx, lz] of [[-0.13, 0.13], [0.13, 0.13], [-0.13, -0.13], [0.13, -0.13]]) {
-      const leg = new THREE.Mesh(legGeo, creeperBodyMat);
+      const leg = new THREE.Mesh(legGeo, creeperSkinMat);
       leg.position.set(lx, 0.2, lz);
       this.group.add(leg);
       this.legs.push(leg);
@@ -1735,10 +1794,9 @@ class Creeper extends Entity {
     this.exploded = false;
   }
   setFlash(on) {
-    const mat = on ? creeperFlashMat : creeperBodyMat;
-    this.body.material = mat;
-    this.head.material = mat;
-    for (const leg of this.legs) leg.material = mat;
+    this.body.material = on ? creeperFlashMat : creeperSkinMat;
+    this.head.material = on ? creeperFlashMat : headMats(creeperSkinMat, creeperFaceMat);
+    for (const leg of this.legs) leg.material = on ? creeperFlashMat : creeperSkinMat;
   }
   update(dt) {
     if (this.exploded) return;
@@ -1792,11 +1850,6 @@ class Creeper extends Entity {
 }
 
 // 村人
-const villagerHeadMat = new THREE.MeshLambertMaterial({ color: 0xa67c52 });
-const villagerNoseMat = new THREE.MeshLambertMaterial({ color: 0x916744 });
-const villagerRobeMat = new THREE.MeshLambertMaterial({ color: 0x6e6a55 });
-const villagerArmMat  = new THREE.MeshLambertMaterial({ color: 0x9e8e6e });
-
 class Villager extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
@@ -1809,15 +1862,12 @@ class Villager extends Entity {
     const upper = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.35), villagerRobeMat);
     upper.position.y = 1.25;
     this.group.add(upper);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), villagerHeadMat);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), headMats(villagerSkinMat, villagerFaceMat));
     head.position.y = 1.75;
     this.group.add(head);
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.28), villagerNoseMat);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.28), villagerSkinMat);
     nose.position.set(0, 1.7, 0.32);
     this.group.add(nose);
-    const eyeGeo = new THREE.BoxGeometry(0.07, 0.07, 0.02);
-    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.13, 1.83, 0.245); this.group.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set( 0.13, 1.83, 0.245); this.group.add(eR);
     const armGeo = new THREE.BoxGeometry(0.16, 0.55, 0.16);
     const armL = new THREE.Mesh(armGeo, villagerArmMat); armL.position.set(-0.36, 1.2, 0); this.group.add(armL);
     const armR = new THREE.Mesh(armGeo, villagerArmMat); armR.position.set( 0.36, 1.2, 0); this.group.add(armR);
@@ -1853,10 +1903,6 @@ class Villager extends Entity {
 }
 
 // アイアンゴーレム
-const golemBodyMat = new THREE.MeshLambertMaterial({ color: 0xc4beb3 });
-const golemDarkMat = new THREE.MeshLambertMaterial({ color: 0x8b8479 });
-const golemEyeMat  = new THREE.MeshBasicMaterial({ color: 0xff5040 });
-
 class IronGolem extends Entity {
   constructor(x, y, z) {
     super(x, y, z);
@@ -1985,10 +2031,6 @@ class IronGolem extends Entity {
 }
 
 // ゾンビ
-const zombieSkinMat  = new THREE.MeshLambertMaterial({ color: 0x4d7044 });
-const zombieClothMat = new THREE.MeshLambertMaterial({ color: 0x2a3a78 });
-const zombiePantsMat = new THREE.MeshLambertMaterial({ color: 0x1c3868 });
-
 class Zombie extends Entity {
   constructor(x, y, z, vx, vz) {
     super(x, y, z);
@@ -1998,15 +2040,12 @@ class Zombie extends Entity {
     const lower = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), zombiePantsMat);
     lower.position.y = 0.5;
     this.group.add(lower);
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.35), zombieClothMat);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.35), zombieShirtMat);
     upper.position.y = 1.2;
     this.group.add(upper);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), zombieSkinMat);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.5, 0.48), headMats(zombieSkinMat, zombieFaceMat));
     head.position.y = 1.72;
     this.group.add(head);
-    const eyeGeo = new THREE.BoxGeometry(0.09, 0.06, 0.02);
-    const eL = new THREE.Mesh(eyeGeo, blackMat); eL.position.set(-0.12, 1.78, 0.245); this.group.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, blackMat); eR.position.set( 0.12, 1.78, 0.245); this.group.add(eR);
     // 前方に伸びた腕
     const armGeo = new THREE.BoxGeometry(0.18, 0.6, 0.35);
     const armL = new THREE.Mesh(armGeo, zombieSkinMat); armL.position.set(-0.36, 1.25, 0.18); this.group.add(armL);
