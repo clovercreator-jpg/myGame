@@ -113,6 +113,7 @@
   #jumpBtn  { right: 28px;  bottom: max(80px, env(safe-area-inset-bottom, 0px));  width: 80px; height: 80px; }
   #breakBtn { right: 122px; bottom: max(85px, env(safe-area-inset-bottom, 0px));  width: 64px; height: 64px; background: rgba(220,80,80,0.35); border-color: rgba(255,140,140,0.7); }
   #placeBtn { right: 28px;  bottom: max(170px, env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; background: rgba(80,170,220,0.35); border-color: rgba(140,200,255,0.7); }
+  #sneakBtn { left: 156px;  bottom: max(34px, env(safe-area-inset-bottom, 0px));  width: 64px; height: 64px; font-size: 11px; }
   #settingsBtn {
     position: absolute; top: 10px; right: 10px;
     width: 42px; height: 42px;
@@ -251,6 +252,7 @@
   <div id="jumpBtn"  class="actBtn">JUMP</div>
   <div id="breakBtn" class="actBtn">壊す</div>
   <div id="placeBtn" class="actBtn">置く</div>
+  <div id="sneakBtn" class="actBtn">スニーク</div>
 </div>
 
 <script type="importmap">
@@ -2416,6 +2418,7 @@ if (isTouch) {
   const jumpBtnEl = document.getElementById('jumpBtn');
   const breakBtnEl = document.getElementById('breakBtn');
   const placeBtnEl = document.getElementById('placeBtn');
+  const sneakBtnEl = document.getElementById('sneakBtn');
   let joyTouchId = null, jumpTouchId = null, lookTouchId = null;
   let lookLastX = 0, lookLastY = 0;
 
@@ -2449,6 +2452,9 @@ if (isTouch) {
   breakBtnEl.addEventListener('touchend', () => breakBtnEl.classList.remove('pressed'));
   placeBtnEl.addEventListener('touchstart', e => { e.preventDefault(); placeBtnEl.classList.add('pressed'); tryPlace(); }, { passive: false });
   placeBtnEl.addEventListener('touchend', () => placeBtnEl.classList.remove('pressed'));
+  sneakBtnEl.addEventListener('touchstart', e => { e.preventDefault(); keys.crouch = true; sneakBtnEl.classList.add('pressed'); }, { passive: false });
+  sneakBtnEl.addEventListener('touchend', () => { keys.crouch = false; sneakBtnEl.classList.remove('pressed'); });
+  sneakBtnEl.addEventListener('touchcancel', () => { keys.crouch = false; sneakBtnEl.classList.remove('pressed'); });
 
   document.addEventListener('touchstart', e => {
     if (lookTouchId !== null) return;
@@ -2456,6 +2462,7 @@ if (isTouch) {
       const target = t.target;
       if (target.closest('#joystick') || target.closest('#jumpBtn') ||
           target.closest('#breakBtn') || target.closest('#placeBtn') ||
+          target.closest('#sneakBtn') ||
           target.closest('#hotbar') || target.closest('#blocker') ||
           target.closest('#settingsBtn') || target.closest('#settingsModal')) continue;
       lookTouchId = t.identifier; lookLastX = t.clientX; lookLastY = t.clientY; break;
@@ -2701,6 +2708,7 @@ function respawnPlayer() {
 }
 function takeDamage(amount) {
   if (!mobsHostile()) return;
+  if (keys.crouch) amount = Math.max(1, Math.round(amount * 0.7)); // スニークで軽減
   playerHP -= amount;
   if (playerHP < 0) playerHP = 0;
   damageFlashTimer = 0.35;
