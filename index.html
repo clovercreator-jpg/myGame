@@ -184,6 +184,7 @@
       <option value="survival" selected>サバイバル</option>
       <option value="creative">クリエイティブ</option>
       <option value="adventure">アドベンチャー</option>
+      <option value="spectator">スペクテーター</option>
     </select>
     <button class="back-settings">戻る</button>
     <button class="close-settings">閉じる</button>
@@ -1745,12 +1746,12 @@ class Creeper extends Entity {
     const dz = player.position.z - pos.z;
     const dist = Math.hypot(dx, dz);
 
-    if (gameMode !== 'creative' && dist < 1.6 && Math.abs(dy) < 2.2) {
+    if (mobsHostile() && dist < 1.6 && Math.abs(dy) < 2.2) {
       this.detonate();
       return;
     }
 
-    if (gameMode !== 'creative' && dist < 16) {
+    if (mobsHostile() && dist < 16) {
       // プレイヤーを追う
       this.dir = Math.atan2(dx, dz);
       const speed = 2.0;
@@ -1891,7 +1892,7 @@ class IronGolem extends Entity {
   }
   takeDamage(amount) {
     super.takeDamage(amount);
-    if (gameMode !== 'creative') {
+    if (mobsHostile()) {
       this.angryAtPlayer = true;
       this.angerTimer = 12; // 12 秒は追いかけ続ける
     }
@@ -1916,7 +1917,7 @@ class IronGolem extends Entity {
     }
     // プレイヤーに殴られたら反撃: プレイヤーを優先ターゲットに
     let targetIsPlayer = false;
-    if (this.angryAtPlayer && gameMode !== 'creative') {
+    if (this.angryAtPlayer && mobsHostile()) {
       const pdx = player.position.x - this.group.position.x;
       const pdz = player.position.z - this.group.position.z;
       const pd = Math.hypot(pdx, pdz);
@@ -2024,7 +2025,7 @@ class Zombie extends Entity {
     }
     // クリエイティブ以外ならプレイヤーも狙う
     let targetIsPlayer = false;
-    if (gameMode !== 'creative') {
+    if (mobsHostile()) {
       const pdx = player.position.x - this.group.position.x;
       const pdz = player.position.z - this.group.position.z;
       const pdy = (player.position.y - EYE_HEIGHT) - this.group.position.y;
@@ -2307,7 +2308,7 @@ function explode(x, y, z) {
     const scale = 1 - pd / (R + 2);
     const dmg = Math.max(1, Math.ceil(scale * 8));
     takeDamage(dmg);
-    if (pd > 0.1 && gameMode !== 'creative') {
+    if (pd > 0.1 && mobsHostile()) {
       const k = (R + 2 - pd) * 2.5;
       velocity.x = (dx2 / pd) * k;
       velocity.z = (dz2 / pd) * k;
@@ -2578,6 +2579,7 @@ function destroyDoor(x, y, z) {
 }
 
 function tryBreak() {
+  if (gameMode === 'spectator') return;
   const block = raycastBlock();
   const ent = raycastEntity();
   // モブとブロックで近い方を選ぶ
@@ -2593,7 +2595,7 @@ function tryBreak() {
   setBlock(block.x, block.y, block.z, 0);
 }
 function tryPlace() {
-  if (gameMode === 'adventure') return;  // 設置/破壊不可
+  if (gameMode === 'adventure' || gameMode === 'spectator') return;
   const tgt = raycastBlock();
   if (!tgt) return;
   const hit = getBlock(tgt.x, tgt.y, tgt.z);
@@ -2668,12 +2670,23 @@ for (let i = 0; i < 10; i++) {
   h.textContent = '♥';
   heartsEl.appendChild(h);
 }
+function mobsHostile() { return gameMode === 'survival' || gameMode === 'adventure'; }
 function updateHearts() {
-  heartsEl.classList.toggle('show', gameMode !== 'creative');
+  heartsEl.classList.toggle('show', mobsHostile());
   const kids = heartsEl.children;
   for (let i = 0; i < 10; i++) {
     kids[i].classList.toggle('empty', i >= playerHP);
   }
+}
+function applyModeUI() {
+  const spec = gameMode === 'spectator';
+  const hb = document.getElementById('hotbar');
+  if (hb) hb.style.display = spec ? 'none' : 'grid';
+  const bb = document.getElementById('breakBtn');
+  const pb = document.getElementById('placeBtn');
+  if (bb) bb.style.display = spec ? 'none' : 'flex';
+  if (pb) pb.style.display = spec ? 'none' : 'flex';
+  if (spec) highlightMesh.visible = false;
 }
 
 function respawnPlayer() {
@@ -2687,7 +2700,7 @@ function respawnPlayer() {
   updateHearts();
 }
 function takeDamage(amount) {
-  if (gameMode === 'creative') return;
+  if (!mobsHostile()) return;
   playerHP -= amount;
   if (playerHP < 0) playerHP = 0;
   damageFlashTimer = 0.35;
@@ -2703,6 +2716,7 @@ function setGameMode(m) {
   lavaTickTimer = 0;
   damageOverlayEl.style.opacity = '0';
   updateHearts();
+  applyModeUI();
 }
 function tryJumpTrigger() {
   const now = performance.now();
@@ -2734,6 +2748,35 @@ function updateCoords() {
 }
 
 function updatePlayer(dt) {
+  const spectator = gameMode === 'spectator';
+
+  // スペクテーター: ブロックすり抜け + 自由飛行
+  if (spectator) {
+    moveDir.set(0, 0, 0);
+    if (keys.forward) moveDir.z -= 1;
+    if (keys.back)    moveDir.z += 1;
+    if (keys.left)    moveDir.x -= 1;
+    if (keys.right)   moveDir.x += 1;
+    moveDir.x += joyVec.x;
+    moveDir.z += joyVec.y;
+    if (moveDir.lengthSq() > 1) moveDir.normalize();
+    const yaw = player.rotation.y;
+    const cos = Math.cos(yaw), sin = Math.sin(yaw);
+    const sp = MOVE_SPEED * 2.0;
+    const pos = player.position;
+    pos.x += (moveDir.x * cos + moveDir.z * sin) * sp * dt;
+    pos.z += (-moveDir.x * sin + moveDir.z * cos) * sp * dt;
+    let vy = 0;
+    if (keys.jump) vy = 8;
+    else if (keys.crouch) vy = -8;
+    pos.y += vy * dt;
+    if (pos.y < 1) pos.y = 1;
+    if (pos.y > WORLD_HEIGHT) pos.y = WORLD_HEIGHT;
+    velocity.set(0, 0, 0);
+    highlightMesh.visible = false;
+    return;
+  }
+
   velocity.x *= Math.max(0, 1 - 5 * dt);
   velocity.z *= Math.max(0, 1 - 5 * dt);
 
