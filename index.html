@@ -1628,6 +1628,8 @@ class Entity {
       sizeAttenuation: true
     });
     this.hpSprite = new THREE.Sprite(mat);
+    // HPバーは攻撃レイキャストの対象にしない (頭上の空間で誤ヒットさせない)
+    this.hpSprite.raycast = () => {};
     this.hpSprite.scale.set(1.0, 0.16, 1);
     this.hpSprite.position.y = (this.height || 1) + 0.4;
     this.hpSprite.renderOrder = 1000;
@@ -2572,6 +2574,9 @@ function raycastEntity() {
   camera.getWorldDirection(_dir);
   _entityRaycaster.set(_origin, _dir);
   _entityRaycaster.far = REACH;
+  // Sprite (HPバー) の raycast には camera が必須。未設定だと three が例外を投げ、
+  // モブが近くにいる間ずっと破壊・攻撃が両方とも効かなくなる。
+  _entityRaycaster.camera = camera;
   let closest = null;
   let closestDist = REACH + 1;
   for (const e of entities) {
