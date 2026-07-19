@@ -114,6 +114,14 @@
   #breakBtn { right: 122px; bottom: max(85px, env(safe-area-inset-bottom, 0px));  width: 64px; height: 64px; background: rgba(220,80,80,0.35); border-color: rgba(255,140,140,0.7); }
   #placeBtn { right: 28px;  bottom: max(170px, env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; background: rgba(80,170,220,0.35); border-color: rgba(140,200,255,0.7); }
   #sneakBtn { right: 122px; bottom: max(155px, env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 11px; }
+  #version {
+    position: absolute; top: 58px; right: 12px;
+    font: 11px/1 system-ui, sans-serif;
+    color: rgba(255,255,255,0.35);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    letter-spacing: 0.5px;
+    pointer-events: none; z-index: 7; user-select: none;
+  }
   #settingsBtn {
     position: absolute; top: 10px; right: 10px;
     width: 42px; height: 42px;
@@ -169,6 +177,7 @@
 <div id="crosshair"><div class="ch-h"></div><div class="ch-v"></div></div>
 <div id="hearts"></div>
 <button id="settingsBtn" title="ホーム (N)">🏠</button>
+<div id="version">v1.0.0</div>
 <div id="settingsModal" style="display:none">
   <div class="modal-page" id="settingsMain">
     <h2>ホーム</h2>
