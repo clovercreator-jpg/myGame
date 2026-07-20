@@ -177,14 +177,14 @@
 <div id="crosshair"><div class="ch-h"></div><div class="ch-v"></div></div>
 <div id="hearts"></div>
 <button id="settingsBtn" title="ホーム (N)">🏠</button>
-<div id="version">v1.0.0</div>
+<div id="version">v1.0.0</div><!-- 実際の値は起動時に JS が localStorage から算出して上書き -->
 <div id="settingsModal" style="display:none">
   <div class="modal-page" id="settingsMain">
     <h2>ホーム</h2>
     <button id="openAudio">オーディオ設定</button>
     <button id="openVideo">ビデオ設定</button>
     <button id="openMode">モード</button>
-    <button id="exitGameBtn" style="background:#552020;border-color:#a33;">終了</button>
+    <button id="updateGameBtn" style="background:#204a55;border-color:#3a8;">更新</button>
     <button class="close-settings">閉じる</button>
   </div>
   <div class="modal-page" id="settingsMode" style="display:none">
@@ -3274,33 +3274,24 @@ settingsBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopProp
 document.getElementById('openAudio').addEventListener('click', () => showSettingsPage('audio'));
 document.getElementById('openVideo').addEventListener('click', () => showSettingsPage('video'));
 document.getElementById('openMode').addEventListener('click', () => showSettingsPage('mode'));
-document.getElementById('exitGameBtn').addEventListener('click', exitGame);
-function exitGame() {
-  worldReady = false;
-  pointerLocked = false;
-  bgmPlaying = false;
-  if (bgmTimer) clearTimeout(bgmTimer);
-  // BGM を即座に黙らせる: masterGain を 0 にしてから AudioContext を close
-  if (masterGain && audioCtx) {
-    try { masterGain.gain.cancelScheduledValues(audioCtx.currentTime); } catch (e) {}
-    try { masterGain.gain.setValueAtTime(0, audioCtx.currentTime); } catch (e) {}
-    try { masterGain.disconnect(); } catch (e) {}
-  }
-  if (audioCtx) {
-    try { audioCtx.suspend(); } catch (e) {}
-    try { audioCtx.close(); } catch (e) {}
-    audioCtx = null;
-  }
-  if (document.pointerLockElement) document.exitPointerLock();
-  document.body.innerHTML =
-    '<div style="position:fixed;inset:0;background:#000;color:#fff;display:flex;' +
-    'flex-direction:column;align-items:center;justify-content:center;' +
-    'font-family:monospace;font-size:22px;text-align:center;padding:20px;">' +
-    '<div>Minecraft風ゲームを終了しました</div>' +
-    '<div style="margin-top:18px;font-size:13px;color:#888;">タブを閉じるか、ページを再読み込みしてください</div>' +
-    '</div>';
-  try { window.close(); } catch (e) {}
+// --- バージョン管理 ---
+// 表示バージョンは v<MAJOR>.<MINOR>.<patch>。patch は localStorage に保存し、
+// ホームの「更新」ボタンを押すたびに +1 されてページが再読み込みされる。
+const VERSION_MAJOR = 1, VERSION_MINOR = 0;
+let versionPatch = parseInt(localStorage.getItem('gameVersionPatch'), 10);
+if (!Number.isFinite(versionPatch) || versionPatch < 0) versionPatch = 0;
+function renderVersion() {
+  const el = document.getElementById('version');
+  if (el) el.textContent = `v${VERSION_MAJOR}.${VERSION_MINOR}.${versionPatch}`;
 }
+renderVersion();
+document.getElementById('updateGameBtn').addEventListener('click', () => {
+  versionPatch += 1;
+  try { localStorage.setItem('gameVersionPatch', String(versionPatch)); } catch (e) {}
+  renderVersion();
+  // 最新版を取り込むためリロード (キャッシュを避けてサーバーから取得)
+  location.reload();
+});
 document.getElementById('modeSelect').addEventListener('change', e => setGameMode(e.target.value));
 // 初期表示反映
 updateHearts();
